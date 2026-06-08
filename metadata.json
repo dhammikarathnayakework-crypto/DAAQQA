@@ -1,0 +1,6 @@
+{
+  "name": "Seth Capital Loan Manager",
+  "description": "A comprehensive system for tracking loan applications, calculations, and monthly collection payments, tailored for Seth Capital.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

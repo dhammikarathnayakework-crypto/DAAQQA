@@ -1,0 +1,63 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&family=Space+Grotesk:wght@300..700&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Noto+Sans+Sinhala:wght@100..900&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Noto Sans Sinhala", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Inter", "Noto Sans Sinhala", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Redefine indigo spectrum to perfectly represent SCL Royal Blue and Deep Navy brand colors */
+  --color-indigo-50: #f0f7ff;
+  --color-indigo-100: #dbebff;
+  --color-indigo-200: #badaff;
+  --color-indigo-300: #6eaeff;
+  --color-indigo-400: #3b8eff;
+  --color-indigo-500: #0066fb;
+  --color-indigo-600: #0052d4; /* SCL Brand Blue Gradient start */
+  --color-indigo-700: #0042b0; /* SCL Deep Royal Blue */
+  --color-indigo-800: #003287;
+  --color-indigo-900: #10264b; /* SCL Corporate Navy style */
+  --color-indigo-950: #0a1831; /* SCL Deepest Navy background style */
+}
+
+/* Custom modern scrollbar and animations */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
+
