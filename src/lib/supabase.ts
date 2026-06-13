@@ -33,9 +33,13 @@ export function getSupabaseConfig(): SupabaseConfig | null {
     console.error("Failed to read Supabase local config", e);
   }
 
-  // 2. Fallback to Vite environment variables
-  const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "";
-  const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
+  // 2. Fallback to Vite environment variables OR direct copy-paste configuration
+  // --- DIRECT CONFIGURATION (ලයිව් සර්වර් එකට සම්බන්ධ කිරීමට ඔබගේ Supabase දත්ත පහත ඇතුලත් කරන්න) ---
+  const DIRECT_SUPABASE_URL = ""; // Example: "https://your-project.supabase.co"
+  const DIRECT_SUPABASE_ANON_KEY = ""; // Example: "eyJhbGciOi..."
+  
+  const envUrl = DIRECT_SUPABASE_URL || (import.meta as any).env?.VITE_SUPABASE_URL || "";
+  const envKey = DIRECT_SUPABASE_ANON_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
 
   if (envUrl.trim() && envKey.trim()) {
     return {
