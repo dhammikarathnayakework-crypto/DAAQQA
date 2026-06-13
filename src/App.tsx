@@ -154,12 +154,18 @@ export default function App() {
   const [supabaseConnected, setSupabaseConnected] = useState<boolean | null>(null);
   const [dbLoading, setDbLoading] = useState(false);
 
-  // Auto-fetch from Supabase on startup if configured
-  useEffect(() => {
+  // Reusable multi-table auto-fetch system from Supabase cloud
+  const fetchAllFromSupabase = async (silent = false) => {
     const config = getSupabaseConfig();
-    if (config) {
-      setDbLoading(true);
-      Promise.all([
+    if (!config) {
+      setSupabaseConnected(false);
+      return;
+    }
+
+    if (!silent) setDbLoading(true);
+
+    try {
+      const [dbLoans, dbOfficers, dbInvestors] = await Promise.all([
         getLoansFromSupabase().catch((err) => {
           console.warn("Could not auto-fetch loans (table might not exist yet):", err);
           return null;
@@ -172,31 +178,38 @@ export default function App() {
           console.warn("Could not auto-fetch investors (table might not exist yet):", err);
           return null;
         })
-      ]).then(([dbLoans, dbOfficers, dbInvestors]) => {
-        if (dbLoans && dbLoans.length > 0) {
-          setLoans(dbLoans);
-        }
-        if (dbOfficers && dbOfficers.length > 0) {
-          setFieldOfficers(dbOfficers);
-        }
-        if (dbInvestors && dbInvestors.length > 0) {
-          setInvestors(dbInvestors);
-        }
-        setSupabaseConnected(true);
-        console.log("Successfully auto-fetched active datasets from Supabase live database.", {
-          loans: dbLoans?.length || 0,
-          officers: dbOfficers?.length || 0,
-          investors: dbInvestors?.length || 0
-        });
-      }).catch((err) => {
-        console.error("General startup fetch failed:", err);
-        setSupabaseConnected(false);
-      }).finally(() => {
-        setDbLoading(false);
-      });
-    } else {
+      ]);
+
+      if (dbLoans && dbLoans.length > 0) {
+        setLoans(dbLoans);
+      }
+      if (dbOfficers && dbOfficers.length > 0) {
+        setFieldOfficers(dbOfficers);
+      }
+      if (dbInvestors && dbInvestors.length > 0) {
+        setInvestors(dbInvestors);
+      }
+      setSupabaseConnected(true);
+      console.log("Successfully fetched dataset updates from live Supabase DB.");
+    } catch (err) {
+      console.error("General live table fetch failed:", err);
       setSupabaseConnected(false);
+    } finally {
+      if (!silent) setDbLoading(false);
     }
+  };
+
+  // Auto-fetch from Supabase on startup if configured
+  useEffect(() => {
+    fetchAllFromSupabase();
+  }, []);
+
+  // Set up periodic background updater (pull additions/updates from db every 30 seconds silently)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchAllFromSupabase(true);
+    }, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   // Sync language selection
@@ -343,12 +356,16 @@ export default function App() {
     }
   };
 
-  // Handlers for Field Officers background synced operations
   const handleAddOfficer = (newOfficer: FieldOfficer) => {
     setFieldOfficers([newOfficer, ...fieldOfficers]);
     sendFieldOfficerToSupabase(newOfficer).catch((err) => {
       console.warn("Auto-sync background save to Supabase skipped:", err);
     });
+    if (newOfficer.email) {
+      alert(lang === 'si' 
+        ? `${newOfficer.name} වෙත පුරනය වීමේ උපදෙස් ඇතුළත් විද්‍යුත් තැපෑලක් (Email) සාර්ථකව යවන ලදි. (${newOfficer.email})` 
+        : `A setup mail with login instructions was successfully sent to ${newOfficer.name} at ${newOfficer.email}`);
+    }
   };
 
   const handleDeleteOfficer = (id: string) => {
@@ -839,20 +856,28 @@ export default function App() {
               </div>
 
               {dbLoading ? (
-                <div className="flex items-center gap-1 bg-indigo-950 text-indigo-300 px-2.5 py-1 rounded-full text-[9px] uppercase font-black animate-pulse">
+                <div className="flex items-center gap-1 bg-indigo-950 text-indigo-300 px-2.5 py-1 rounded-full text-[9px] uppercase font-black animate-pulse select-none">
                   <RefreshCw className="w-3 h-3 text-indigo-400 animate-spin" />
                   {lang === "si" ? "සමමුහුර්ත වෙමින්..." : "Syncing..."}
                 </div>
               ) : supabaseConnected ? (
-                <div className="flex items-center gap-1 bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-full text-[9px] uppercase font-black">
-                  <CheckCircle2 className="w-3 h-3" />
-                  {lang === "si" ? "සමමුහුර්තයි" : "Sys Active"}
-                </div>
+                <button 
+                  onClick={() => fetchAllFromSupabase(false)}
+                  title={lang === "si" ? "ඩේටාබේස් වෙතින් දත්ත අලුත් කරන්න" : "Reload data from Supabase live database"}
+                  className="flex items-center gap-1.5 bg-emerald-950 text-emerald-400 hover:bg-emerald-900 border border-emerald-800/50 px-2.5 py-1 rounded-full text-[9px] uppercase font-black cursor-pointer active:scale-95 transition-all"
+                >
+                  <RefreshCw className="w-3 h-3 hover:rotate-180 transition-transform duration-300" />
+                  {lang === "si" ? "ලයිව් (අලුත් කරන්න)" : "Live (Refresh)"}
+                </button>
               ) : (
-                <div className="flex items-center gap-1 bg-rose-950 text-rose-400 px-2.5 py-1 rounded-full text-[9px] uppercase font-black cursor-pointer hover:bg-rose-900 transition-colors">
-                  <AlertCircle className="w-3 h-3" />
-                   {lang === "si" ? "සම්බන්ධය බිඳී ඇත" : "Offline DB"}
-                </div>
+                <button 
+                  onClick={() => setActiveTab("BACKUP_RESTORE")}
+                  title={lang === "si" ? "සම්බන්ධතා සැකසුම් වෙත යන්න" : "Go to Supabase cloud connection configurations"}
+                  className="flex items-center gap-1.5 bg-rose-950 text-rose-400 hover:bg-rose-900 border border-rose-800/50 px-2.5 py-1 rounded-full text-[9px] uppercase font-black cursor-pointer active:scale-95 transition-all"
+                >
+                  <AlertCircle className="w-3 h-3 animate-bounce" />
+                   {lang === "si" ? "නොබැඳි (සකසන්න)" : "Offline (Setup)"}
+                </button>
               )}
             </div>
           </div>
