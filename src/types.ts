@@ -8,6 +8,9 @@ export interface ApplicantInfo {
   nic: string;                     // ජාතික හැඳුනුම්පත් අංකය
   address: string;                 // ස්ථිර ලිපිනය
   phone: string;                   // දුරකථන අංකය
+  idFront?: string;                // හැඳුනුම්පත් ඉදිරිපස පින්තූරය (base64)
+  idBack?: string;                 // හැඳුනුම්පත් පසුපස පින්තූරය (base64)
+  signedDoc?: string;              // අත්සන් කරන ලද අයදුම්පත් ලේඛනය (base64)
 }
 
 export interface RelativeInfo {
@@ -17,6 +20,8 @@ export interface RelativeInfo {
   address: string;                 // ලිපිනය
   phone: string;                   // දුරකථන අංකය
   workAddress: string;             // සේවා ස්ථානයේ ලිපිනය
+  idFront?: string;                // හැඳුනුම්පත් ඉදිරිපස පින්තූරය (base64)
+  idBack?: string;                 // හැඳුනුම්පත් පසුපස පින්තූරය (base64)
 }
 
 export interface GuarantorInfo {
@@ -25,6 +30,8 @@ export interface GuarantorInfo {
   nic: string;                     // ජාතික හැඳුනුම්පත් අංකය
   phone: string;                   // දුරකථන අංකය
   isAgreed: boolean;               // ප්‍රකාශයට එකඟතාවය (i.e. signed agreement checkbox)
+  idFront?: string;                // හැඳුනුම්පත් ඉදිරිපස පින්තූරය (base64)
+  idBack?: string;                 // හැඳුනුම්පත් පසුපස පින්තූරය (base64)
 }
 
 export interface LoanDetailsType {
@@ -41,6 +48,9 @@ export interface OfficeUseInfo {
   specialNotes: string;            // විශේෂ සටහන්
   loanDate: string;                // ණය ලබාදුන් දිනය (YYYY-MM-DD or standard ISO)
   disbursedByOfficerId?: string;   // මුදල් නිකුත් කළ නිලධාරියා
+  createdByOfficerId?: string;     // ලියාපදිංචි කළ නිලධාරියාගේ ID
+  createdByOfficerName?: string;   // ලියාපදිංචි කළ නිලධාරියාගේ නම
+  createdByOfficerEmpId?: string;  // ලියාපදිංචි කළ නිලධාරියාගේ සේවක අංකය
 }
 
 export interface PaymentCollection {
@@ -83,6 +93,7 @@ export interface OfficerExpense {
   date: string;
   description: string;             // විස්තරය
   amount: number;                  // මුදල
+  billImage?: string;              // බිල්පත (receipt) පින්තූරය (base64)
   status?: 'PENDING' | 'APPROVED' | 'REJECTED'; // අනුමැතිය ලැබුණිද යන්න/තත්ත්වය
   approvedBy?: string;             // අනුමත කල පුද්ගලයා / සාක්ෂිකරු
   verifiedAt?: string;             // සත්‍යාපිත දිනය
@@ -138,6 +149,10 @@ export interface FieldOfficer {
   remittances: OfficerRemittance[];
   repTransfers?: OfficerRepTransfer[];
   createdAt: string;
+  position?: string;               // සේවා තනතුර (Position / Role)
+  canApproveLoans?: boolean;       // ණය තහවුරු කිරීමේ (Approve) බලය තිබේද?
+  idFront?: string;                // හැඳුනුම්පත් ඉදිරිපස පින්තූරය (base64)
+  idBack?: string;                 // හැඳුනුම්පත් පසුපස පින්තූරය (base64)
 }
 
 export interface InvestorTransaction {

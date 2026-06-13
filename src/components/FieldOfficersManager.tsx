@@ -30,7 +30,10 @@ import {
   QrCode,
   RefreshCw,
   CheckCircle2,
-  Printer
+  Printer,
+  Eye,
+  Upload,
+  Camera
 } from "lucide-react";
 import { FieldOfficer, Loan, OfficerAllowance, OfficerExpense, OfficerRemittance } from "../types";
 import { formatLKR, generateId } from "../utils";
@@ -48,6 +51,163 @@ export function generateOfficerHash(txId: string, date: string, type: string, am
   const padded = (code + "00000000").substring(0, 8);
   return `SEC-OFC-${padded}-${txId.slice(-4).toUpperCase()}`;
 }
+
+interface ImageUploadFieldProps {
+  label: string;
+  subLabel?: string;
+  value?: string;
+  onChange: (base64: string) => void;
+  onClear: () => void;
+  lang: Language;
+}
+
+function ImageUploadField({ label, subLabel, value, onChange, onClear, lang }: ImageUploadFieldProps) {
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputId = React.useId();
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      compressAndLoad(e.target.files[0]);
+    }
+  };
+
+  const compressAndLoad = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 1000;
+        const MAX_HEIGHT = 1000;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL("image/jpeg", 0.7);
+          onChange(compressed);
+        } else {
+          onChange(e.target?.result as string);
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      compressAndLoad(e.dataTransfer.files[0]);
+    }
+  };
+
+  return (
+    <div className="space-y-1">
+      <label className="text-[10px] font-black text-slate-400 uppercase block tracking-wider">
+        {label}
+      </label>
+      {value ? (
+        <div className="relative border border-slate-200 rounded-xl overflow-hidden group bg-slate-50 flex items-center justify-center h-28">
+          <img
+            src={value}
+            alt={label}
+            className="w-full h-full object-cover group-hover:scale-105 transition duration-350"
+            referrerPolicy="no-referrer"
+          />
+          <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition duration-200 flex items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={onClear}
+              className="p-1.5 bg-rose-600/85 hover:bg-rose-600 text-white rounded-lg transition shrink-0 cursor-pointer"
+              title="Delete"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="absolute bottom-1 right-2 bg-slate-900/40 backdrop-blur-xs px-1.5 py-0.5 rounded text-[8px] font-bold text-white uppercase tracking-wider flex items-center gap-1">
+            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+            {lang === "si" ? "සූදානම්" : "Uploaded"}
+          </div>
+        </div>
+      ) : (
+        <div
+          onDragEnter={handleDrag}
+          onDragOver={handleDrag}
+          onDragLeave={handleDrag}
+          onDrop={handleDrop}
+          className={`border-2 border-dashed rounded-xl p-3 flex flex-col items-center justify-center h-28 transition cursor-pointer select-none text-center ${
+            dragActive
+              ? "border-indigo-600 bg-indigo-50/25"
+              : "border-slate-200 hover:border-indigo-500 bg-slate-50/30 hover:bg-white/50"
+          }`}
+          onClick={() => document.getElementById(fileInputId)?.click()}
+        >
+          <input
+            id={fileInputId}
+            type="file"
+            accept="image/*"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <Camera className="w-5 h-5 text-slate-400 mb-1" />
+          <span className="text-[10px] font-bold text-slate-650 block">
+            {lang === "si" ? "පින්තූරය තෝරන්න" : "Choose Photo"}
+          </span>
+          {subLabel && (
+            <span className="text-[8px] text-slate-400 block mt-0.5 leading-tight">
+              {subLabel}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Automatic sequential employee ID generator helper
+export const generateNextEmployeeId = (existingOfficers: FieldOfficer[]) => {
+  let maxNum = 0;
+  existingOfficers.forEach(o => {
+    const empId = o.employeeId;
+    if (empId && empId.toUpperCase().startsWith("EM-")) {
+      const clean = empId.toUpperCase().replace("EM-", "");
+      const numPart = parseInt(clean, 10);
+      if (!isNaN(numPart) && numPart > maxNum) {
+        maxNum = numPart;
+      }
+    }
+  });
+  const nextNum = maxNum + 1;
+  return `EM-${nextNum.toString().padStart(4, "0")}`;
+};
 
 interface FieldOfficersManagerProps {
   officers: FieldOfficer[];
@@ -82,6 +242,10 @@ export default function FieldOfficersManager({
   const [joinedDate, setJoinedDate] = useState(new Date().toISOString().split("T")[0]);
   const [targetCollection, setTargetCollection] = useState("");
   const [status, setStatus] = useState<'ACTIVE' | 'INACTIVE'>("ACTIVE");
+  const [position, setPosition] = useState("FIELD_OFFICER");
+  const [canApproveLoans, setCanApproveLoans] = useState(false);
+  const [idFront, setIdFront] = useState("");
+  const [idBack, setIdBack] = useState("");
 
   // Editing profile states
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -95,6 +259,10 @@ export default function FieldOfficersManager({
   const [editJoinedDate, setEditJoinedDate] = useState("");
   const [editTargetCollection, setEditTargetCollection] = useState("");
   const [editStatus, setEditStatus] = useState<'ACTIVE' | 'INACTIVE'>("ACTIVE");
+  const [editPosition, setEditPosition] = useState("FIELD_OFFICER");
+  const [editCanApproveLoans, setEditCanApproveLoans] = useState(false);
+  const [editIdFront, setEditIdFront] = useState("");
+  const [editIdBack, setEditIdBack] = useState("");
 
   // Sub-transaction states
   const [activeTab, setActiveTab] = useState<"COLLECTIONS" | "ALLOWANCES" | "EXPENSES" | "REMITTANCES" | "TRANSFERS" | "EOD_REPORT">("COLLECTIONS");
@@ -137,6 +305,10 @@ export default function FieldOfficersManager({
       allowances: [],
       remittances: [],
       createdAt: new Date().toISOString(),
+      position,
+      canApproveLoans: position !== "FIELD_OFFICER" ? canApproveLoans : false,
+      idFront: idFront || undefined,
+      idBack: idBack || undefined,
     };
     onAddOfficer(newOfficer);
     
@@ -157,6 +329,10 @@ export default function FieldOfficersManager({
     setJoinedDate(new Date().toISOString().split("T")[0]);
     setTargetCollection("");
     setStatus("ACTIVE");
+    setPosition("FIELD_OFFICER");
+    setCanApproveLoans(false);
+    setIdFront("");
+    setIdBack("");
   };
 
   // Editing profile procedures
@@ -171,6 +347,10 @@ export default function FieldOfficersManager({
     setEditJoinedDate(officer.joinedDate || new Date().toISOString().split("T")[0]);
     setEditTargetCollection(officer.targetCollection?.toString() || "");
     setEditStatus(officer.status || "ACTIVE");
+    setEditPosition(officer.position || "FIELD_OFFICER");
+    setEditCanApproveLoans(officer.canApproveLoans || false);
+    setEditIdFront(officer.idFront || "");
+    setEditIdBack(officer.idBack || "");
     setIsEditingProfile(true);
   };
 
@@ -193,6 +373,10 @@ export default function FieldOfficersManager({
       joinedDate: editJoinedDate || undefined,
       targetCollection: editTargetCollection ? parseFloat(editTargetCollection) : undefined,
       status: editStatus,
+      position: editPosition,
+      canApproveLoans: editPosition !== "FIELD_OFFICER" ? editCanApproveLoans : false,
+      idFront: editIdFront || undefined,
+      idBack: editIdBack || undefined,
     };
     onUpdateOfficer(updated);
     setIsEditingProfile(false);
@@ -211,6 +395,7 @@ export default function FieldOfficersManager({
     securityHash?: string;
     referenceToken?: string;
   } | null>(null);
+  const [viewingExpenseBill, setViewingExpenseBill] = useState<OfficerExpense | null>(null);
   const [officerScanResult, setOfficerScanResult] = useState<{ scanned: number; valid: boolean; errors: string[] } | null>(null);
 
   const currentOfficer = officers.find(o => o.id === selectedOfficerId) || officers[0] || null;
@@ -599,7 +784,13 @@ export default function FieldOfficersManager({
               {lang === "si" ? "නිලධාරීන් ලැයිස්තුව" : "Representatives"}
             </h3>
             <button
-              onClick={() => setShowAddForm(!showAddForm)}
+              onClick={() => {
+                const nextState = !showAddForm;
+                if (nextState) {
+                  setEmployeeId(generateNextEmployeeId(officers));
+                }
+                setShowAddForm(nextState);
+              }}
               className="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition-all active:scale-95 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -745,6 +936,62 @@ export default function FieldOfficersManager({
                     <option value="ACTIVE">{lang === "si" ? "Active" : "Active"}</option>
                     <option value="INACTIVE">{lang === "si" ? "Inactive" : "Inactive"}</option>
                   </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                    {lang === "si" ? "සේවා තනතුර (Position / System Access Role)" : "Position / System Role"}
+                  </label>
+                  <select
+                    value={position}
+                    onChange={(e) => setPosition(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 tracking-wide font-sans outline-none"
+                  >
+                    <option value="FIELD_OFFICER">{lang === "si" ? "ප්‍රාදේශීය නිලධාරී (Field Representative / Officer)" : "Field Representative / Officer"}</option>
+                    <option value="OFFICE_STAFF">{lang === "si" ? "කාර්යාල සහායක / කාර්ය මණ්ඩලය (Office Staff)" : "Office Staff"}</option>
+                    <option value="MANAGER">{lang === "si" ? "කළමනාකරු / පාලක (Manager)" : "Office Manager"}</option>
+                    <option value="ACCOUNTANT">{lang === "si" ? "ගණකාධිකාරී (Accountant)" : "Accountant"}</option>
+                    <option value="ADMIN">{lang === "si" ? "පද්ධති පරිපාලක (Admin)" : "System Administrator"}</option>
+                  </select>
+                </div>
+                {position !== "FIELD_OFFICER" && (
+                  <div className="flex items-center gap-2 p-2.5 bg-indigo-50 border border-indigo-100 rounded-xl">
+                    <input
+                      type="checkbox"
+                      id="canApproveLoans"
+                      checked={canApproveLoans}
+                      onChange={(e) => setCanApproveLoans(e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                    />
+                    <label htmlFor="canApproveLoans" className="text-[10px] font-bold text-indigo-950 cursor-pointer select-none">
+                      {lang === "si" ? "මෙම නිලධාරියාට ණය අයදුම්පත් අනුමත කිරීමට (Approve Authority) අවසර දෙන්න" : "Grant Approval Authority to authorize/approve Loans"}
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Officer ID Image Uploads */}
+              <div className="space-y-2 pt-2 border-t border-slate-200">
+                <span className="text-[10px] font-extrabold text-slate-500 uppercase block">
+                  {lang === "si" ? "සේවක ජාතික හැඳුනුම්පත් ඡායාරූප (NIC Documents)" : "Employee NIC Document Photos"}
+                </span>
+                <div className="grid grid-cols-1 gap-2.5">
+                  <ImageUploadField
+                    label={lang === "si" ? "හැඳුනුම්පත් ඉදිරිපස (NIC Front)" : "NIC Front Side Copy"}
+                    value={idFront}
+                    onChange={(b64) => setIdFront(b64)}
+                    onClear={() => setIdFront("")}
+                    lang={lang}
+                  />
+                  <ImageUploadField
+                    label={lang === "si" ? "හැඳුනුම්පත් පසුපස (NIC Back)" : "NIC Back Side Copy"}
+                    value={idBack}
+                    onChange={(b64) => setIdBack(b64)}
+                    onClear={() => setIdBack("")}
+                    lang={lang}
+                  />
                 </div>
               </div>
 
@@ -925,6 +1172,37 @@ export default function FieldOfficersManager({
                       </div>
                     </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">{lang === "si" ? "සේවා තනතුර (Position / System Role)" : "Position / System Role"}</label>
+                        <select
+                          value={editPosition}
+                          onChange={(e) => setEditPosition(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-sans outline-none"
+                        >
+                          <option value="FIELD_OFFICER">{lang === "si" ? "ප්‍රාදේශීය නිලධාරී (Field Representative / Officer)" : "Field Representative / Officer"}</option>
+                          <option value="OFFICE_STAFF">{lang === "si" ? "කාර්යාල සහායක / කාර්ය මණ්ඩලය (Office Staff)" : "Office Staff"}</option>
+                          <option value="MANAGER">{lang === "si" ? "කළමනාකරු / පාලක (Manager)" : "Office Manager"}</option>
+                          <option value="ACCOUNTANT">{lang === "si" ? "ගණකාධිකාරී (Accountant)" : "Accountant"}</option>
+                          <option value="ADMIN">{lang === "si" ? "පද්ධති පරිපාලක (Admin)" : "System Administrator"}</option>
+                        </select>
+                      </div>
+                      {editPosition !== "FIELD_OFFICER" ? (
+                        <div className="flex items-center gap-2 p-2.5 bg-indigo-50 border border-indigo-100 rounded-xl mt-4">
+                          <input
+                            type="checkbox"
+                            id="editCanApproveLoans"
+                            checked={editCanApproveLoans}
+                            onChange={(e) => setEditCanApproveLoans(e.target.checked)}
+                            className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                          />
+                          <label htmlFor="editCanApproveLoans" className="text-[10px] font-bold text-indigo-900 cursor-pointer select-none">
+                            {lang === "si" ? "මෙම නිලධාරියාට ණය අයදුම්පත් අනුමත කිරීමට (Approve Authority) අවසර දෙන්න" : "Grant Approval Authority to authorize/approve Loans"}
+                          </label>
+                        </div>
+                      ) : <div />}
+                    </div>
+
                     <div>
                       <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">{lang === "si" ? "ලිපිනය" : "Residence Address"}</label>
                       <input
@@ -933,6 +1211,29 @@ export default function FieldOfficersManager({
                         onChange={(e) => setEditAddress(e.target.value)}
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-sans outline-none"
                       />
+                    </div>
+
+                    {/* ID Image Uploads for Editing */}
+                    <div className="space-y-2 pt-3 border-t border-slate-100">
+                      <span className="text-[10px] font-extrabold text-slate-500 uppercase block">
+                        {lang === "si" ? "සේවක හැඳුනුම්පත් ඡායාරූප (NIC Documents)" : "Employee NIC Document Photos"}
+                      </span>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <ImageUploadField
+                          label={lang === "si" ? "හැඳුනුම්පත් ඉදිරිපස (NIC Front)" : "NIC Front Side Copy"}
+                          value={editIdFront}
+                          onChange={(b64) => setEditIdFront(b64)}
+                          onClear={() => setEditIdFront("")}
+                          lang={lang}
+                        />
+                        <ImageUploadField
+                          label={lang === "si" ? "හැඳුනුම්පත් පසුපස (NIC Back)" : "NIC Back Side Copy"}
+                          value={editIdBack}
+                          onChange={(b64) => setEditIdBack(b64)}
+                          onClear={() => setEditIdBack("")}
+                          lang={lang}
+                        />
+                      </div>
                     </div>
 
                     <div className="flex gap-2 justify-end pt-2">
@@ -967,6 +1268,20 @@ export default function FieldOfficersManager({
                           ) : (
                             <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-wider">
                               Active Force
+                            </span>
+                          )}
+                          {currentOfficer.position && (
+                            <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-750 text-[9px] font-black uppercase tracking-wider">
+                              {currentOfficer.position === 'FIELD_OFFICER' ? (lang === 'si' ? 'ප්‍රාදේශීය නිලධාරී' : 'Field Representative') : 
+                               currentOfficer.position === 'OFFICE_STAFF' ? (lang === 'si' ? 'කාර්යාල සහායක' : 'Office Staff') : 
+                               currentOfficer.position === 'MANAGER' ? (lang === 'si' ? 'කළමනාකරු' : 'Manager') : 
+                               currentOfficer.position === 'ACCOUNTANT' ? (lang === 'si' ? 'ගණකාධිකාරී' : 'Accountant') : 
+                               currentOfficer.position === 'ADMIN' ? (lang === 'si' ? 'පද්ධති පරිපාලක' : 'Admin') : currentOfficer.position}
+                            </span>
+                          )}
+                          {currentOfficer.position !== 'FIELD_OFFICER' && currentOfficer.canApproveLoans && (
+                            <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-805 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 border border-amber-200">
+                              🛡️ {lang === 'si' ? 'ණය අනුමත බලය' : 'Can Approve Loans'}
                             </span>
                           )}
                           {currentOfficer.employeeId && (
@@ -1024,6 +1339,34 @@ export default function FieldOfficersManager({
                             </div>
                             <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                               <div className="bg-indigo-600 h-1.5 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (metrics.totalCollected / currentOfficer.targetCollection) * 100)}%` }} />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Employee ID NIC Card Preview Display */}
+                        {(currentOfficer.idFront || currentOfficer.idBack) && (
+                          <div className="mt-3 p-3 rounded-2xl bg-indigo-50/20 border border-indigo-150/25">
+                            <h5 className="text-[9px] font-black uppercase text-indigo-550 mb-2 tracking-wider">
+                              {lang === "si" ? "සේවක ජාතික හැඳුනුම්පත් ඡායාරූප (NIC Card Copies)" : "Staff National Identity Card (NIC)"}
+                            </h5>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {currentOfficer.idFront ? (
+                                <div className="space-y-1">
+                                  <span className="text-[8px] font-bold text-slate-400 uppercase">{lang === "si" ? "ඉදිරිපස" : "Front Side"}</span>
+                                  <div className="relative rounded-lg overflow-hidden border border-slate-200 bg-white aspect-video max-h-36 flex items-center justify-center">
+                                    <img src={currentOfficer.idFront} alt="ID Front" className="object-contain w-full h-full" referrerPolicy="no-referrer" />
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {currentOfficer.idBack ? (
+                                <div className="space-y-1">
+                                  <span className="text-[8px] font-bold text-slate-400 uppercase">{lang === "si" ? "පසුපස" : "Back Side"}</span>
+                                  <div className="relative rounded-lg overflow-hidden border border-slate-200 bg-white aspect-video max-h-36 flex items-center justify-center">
+                                    <img src={currentOfficer.idBack} alt="ID Back" className="object-contain w-full h-full" referrerPolicy="no-referrer" />
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
                           </div>
                         )}
@@ -1583,10 +1926,20 @@ export default function FieldOfficersManager({
                                             </button>
                                           </div>
                                         )}
+                                        {item.billImage && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setViewingExpenseBill(item)}
+                                            className="p-1.5 text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-105 rounded-lg transition cursor-pointer flex items-center justify-center shrink-0"
+                                            title={lang === "si" ? "බිල්පත බලන්න" : "View Bill Receipt"}
+                                          >
+                                            <Eye className="w-3.5 h-3.5" />
+                                          </button>
+                                        )}
                                         <button 
                                           type="button"
                                           onClick={() => handleDeleteExpenseItem(item.id)}
-                                          className="text-slate-300 hover:text-rose-600 transition"
+                                          className="text-slate-300 hover:text-rose-600 transition shrink-0 p-1"
                                         >
                                           <Trash2 className="w-3.5 h-3.5" />
                                         </button>
@@ -1858,9 +2211,12 @@ export default function FieldOfficersManager({
 
                     const tIns = officers.flatMap(o => o.repTransfers||[]).filter(t => t.toOfficerId === currentOfficer.id && t.date === reportDate && t.status === 'ACCEPTED');
                     const tInVal = tIns.reduce((sum, t) => sum + t.amount, 0);
+
+                    const repDisbursed = loans.filter(l => l.officeUse.disbursedByOfficerId === currentOfficer.id && l.officeUse.loanDate === reportDate);
+                    const disbursedVal = repDisbursed.reduce((sum, l) => sum + l.officeUse.approvedAmount, 0);
                     
                     const totalInflow = floatVal + collsVal + battaVal + otherVal + tInVal;
-                    const totalOutflow = expsVal + remsVal + tOutVal;
+                    const totalOutflow = expsVal + remsVal + tOutVal + disbursedVal;
                     const netEodHandover = totalInflow - totalOutflow;
 
                     return (
@@ -1970,6 +2326,12 @@ export default function FieldOfficersManager({
                                   <span>- {lang === "si" ? "කාර්යාලයට භාරදුන් මුදල්" : "Remitted Cash"}</span>
                                   <span className="font-bold font-mono text-rose-500">-{formatLKR(remsVal)}</span>
                                 </div>
+                                {disbursedVal > 0 && (
+                                  <div className="flex justify-between">
+                                    <span>- {lang === "si" ? "නිකුත් කළ ණය" : "Disbursed Loans"}</span>
+                                    <span className="font-bold font-mono text-rose-500">-{formatLKR(disbursedVal)}</span>
+                                  </div>
+                                )}
                                 {tOutVal > 0 && (
                                   <div className="flex justify-between">
                                     <span>- {lang === "si" ? "ලි. යැවීම් (Transfers Out)" : "Rep Transfers Out"}</span>
@@ -1999,7 +2361,7 @@ export default function FieldOfficersManager({
                             </div>
 
                             {/* Warning on empty records */}
-                            {colls.length === 0 && floatVal === 0 && battaVal === 0 && expsVal === 0 && remsVal === 0 && (
+                            {colls.length === 0 && floatVal === 0 && battaVal === 0 && expsVal === 0 && remsVal === 0 && disbursedVal === 0 && tInVal === 0 && tOutVal === 0 && (
                               <div className="p-3 bg-rose-50/50 rounded-xl text-center border border-rose-100">
                                 <p className="text-[9px] font-extrabold text-rose-600">
                                   {lang === "si" ? "මෙම දිනයේ කිසිදු ගනුදෙනුවක් සිදු වී නැත." : "NO REGISTERED TRANSACTIONS ON THIS DATE."}
@@ -2137,6 +2499,55 @@ export default function FieldOfficersManager({
                     >
                       {lang === "si" ? "ලේඛනය වසන්න" : "Close Certificate"}
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {viewingExpenseBill && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in font-sans">
+                  <div className="bg-white rounded-3xl border border-slate-200 p-6 max-w-lg w-full shadow-2xl relative space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div>
+                        <h3 className="font-extrabold text-sm text-slate-800 uppercase tracking-tight">
+                          {lang === "si" ? "වියදම් බිල්පත (Bill Receipt)" : "Expense Bill Receipt"}
+                        </h3>
+                        <p className="text-[10px] text-slate-400">
+                          {viewingExpenseBill.description} | {formatLKR(viewingExpenseBill.amount)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setViewingExpenseBill(null)}
+                        className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="border border-slate-150 rounded-2xl overflow-hidden bg-slate-50 flex items-center justify-center max-h-[400px]">
+                      {viewingExpenseBill.billImage ? (
+                        <img
+                          src={viewingExpenseBill.billImage}
+                          alt="Uploaded Receipt"
+                          className="max-w-full max-h-[400px] object-contain shadow-xs"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="p-8 text-center text-slate-400">
+                          {lang === "si" ? "පින්තූරයක් නොමැත" : "No image available"}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setViewingExpenseBill(null)}
+                        className="bg-slate-950 hover:bg-slate-800 text-white font-extrabold px-5 py-2 rounded-xl text-xs transition cursor-pointer"
+                      >
+                        {lang === "si" ? "වසන්න" : "Close"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}

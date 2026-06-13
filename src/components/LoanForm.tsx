@@ -15,11 +15,168 @@ import {
   X, 
   ArrowRight,
   ClipboardCheck,
-  Calculator
+  Calculator,
+  Camera,
+  Upload,
+  Trash2,
+  Eye
 } from "lucide-react";
 import { Loan, ApplicantInfo, RelativeInfo, GuarantorInfo, LoanDetailsType, OfficeUseInfo, FieldOfficer } from "../types";
-import { generateId, formatLKR } from "../utils";
+import { generateId, formatLKR, checkNicStatus } from "../utils";
 import { translations, Language } from "../translations";
+
+interface ImageUploadFieldProps {
+  label: string;
+  subLabel?: string;
+  value?: string;
+  onChange: (base64: string) => void;
+  onClear: () => void;
+  lang: Language;
+}
+
+function ImageUploadField({ label, subLabel, value, onChange, onClear, lang }: ImageUploadFieldProps) {
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputId = React.useId();
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      compressAndLoad(e.target.files[0]);
+    }
+  };
+
+  const compressAndLoad = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 1000;
+        const MAX_HEIGHT = 1000;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL("image/jpeg", 0.7);
+          onChange(compressed);
+        } else {
+          onChange(e.target?.result as string);
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      compressAndLoad(e.dataTransfer.files[0]);
+    }
+  };
+
+  return (
+    <div className="space-y-1">
+      <label className="text-[10px] font-black text-slate-400 uppercase block tracking-wider">
+        {label}
+      </label>
+      {value ? (
+        <div className="relative border border-slate-200 rounded-xl overflow-hidden group bg-slate-50 flex items-center justify-center h-28">
+          <img
+            src={value}
+            alt={label}
+            className="w-full h-full object-cover group-hover:scale-105 transition duration-350"
+            referrerPolicy="no-referrer"
+          />
+          <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition duration-200 flex items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const w = window.open();
+                if (w) {
+                  w.document.write(`<img src="${value}" style="max-width:100%; max-height:100vh; display:block; margin:auto;"/>`);
+                }
+              }}
+              className="p-1.5 bg-white/20 hover:bg-white/40 text-white rounded-lg transition shrink-0"
+              title="View full"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onClear}
+              className="p-1.5 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg transition shrink-0"
+              title="Delete"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="absolute bottom-1 right-2 bg-slate-900/40 backdrop-blur-xs px-1.5 py-0.5 rounded text-[8px] font-bold text-white uppercase tracking-wider flex items-center gap-1">
+            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+            {lang === "si" ? "සූදානම්" : "Uploaded"}
+          </div>
+        </div>
+      ) : (
+        <div
+          onDragEnter={handleDrag}
+          onDragOver={handleDrag}
+          onDragLeave={handleDrag}
+          onDrop={handleDrop}
+          className={`border-2 border-dashed rounded-xl p-3 flex flex-col items-center justify-center h-28 transition cursor-pointer select-none text-center ${
+            dragActive
+              ? "border-indigo-600 bg-indigo-50/25"
+              : "border-slate-200 hover:border-indigo-500 bg-slate-50/30 hover:bg-white/50"
+          }`}
+          onClick={() => document.getElementById(fileInputId)?.click()}
+        >
+          <input
+            id={fileInputId}
+            type="file"
+            accept="image/*"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <Camera className="w-5 h-5 text-slate-400 mb-1" />
+          <span className="text-[10px] font-bold text-slate-650 block">
+            {lang === "si" ? "පින්තූරය තෝරන්න" : "Choose Photo"}
+          </span>
+          {subLabel && (
+            <span className="text-[8px] text-slate-400 block mt-0.5 leading-tight">
+              {subLabel}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface LoanFormProps {
   onSave: (loan: Loan) => void;
@@ -27,9 +184,10 @@ interface LoanFormProps {
   initialLoan?: Loan;
   fieldOfficers: FieldOfficer[];
   lang: Language;
+  loans?: Loan[];
 }
 
-export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers, lang }: LoanFormProps) {
+export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers, lang, loans = [] }: LoanFormProps) {
   const t = translations[lang];
   const isEditMode = !!initialLoan;
 
@@ -40,7 +198,7 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
 
   // Relative State
   const [relative, setRelative] = useState<RelativeInfo>(
-    initialLoan?.relative || { name: "", relationship: "", nic: "", address: "", phone: "", workAddress: "" }
+    initialLoan?.relative || { name: "", relationship: "", nic: "", address: "", phone: "", workAddress: "", idFront: "", idBack: "" }
   );
 
   // Loan Details State (Requested)
@@ -55,6 +213,12 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
   const [guarantor2, setGuarantor2] = useState<GuarantorInfo>(
     initialLoan?.guarantor2 || { name: "", address: "", nic: "", phone: "", isAgreed: false }
   );
+
+  // Check variables for NIC status (Active loan / Active guarantor)
+  const applicantNicCheck = checkNicStatus(applicant.nic, loans);
+  const relativeNicCheck = checkNicStatus(relative.nic || "", loans);
+  const guarantor1NicCheck = checkNicStatus(guarantor1.nic, loans);
+  const guarantor2NicCheck = checkNicStatus(guarantor2.nic, loans);
 
   // Office Use State
   const [officeUse, setOfficeUse] = useState<OfficeUseInfo>({
@@ -197,8 +361,28 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
               placeholder="e.g., 198512345678 / 851234567V"
               value={applicant.nic}
               onChange={(e) => setApplicant({ ...applicant, nic: e.target.value })}
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-250 focus:outline-hidden focus:border-indigo-600 bg-slate-50/50 text-slate-755 text-xs font-mono font-bold focus:bg-white transition"
+              className={`w-full px-4 py-2.5 rounded-xl border focus:outline-hidden transition text-xs font-mono font-bold focus:bg-white ${
+                applicantNicCheck.hasActiveLoan 
+                  ? "bg-rose-50/20 border-2 border-rose-500 text-rose-900 focus:border-rose-600 focus:ring-2 focus:ring-rose-500/10 shadow-sm" 
+                  : applicantNicCheck.isActiveGuarantor 
+                    ? "bg-amber-50/20 border-2 border-amber-500 text-amber-900 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/10 shadow-sm" 
+                    : "border-slate-250 focus:border-indigo-600 bg-slate-50/50 text-slate-755"
+              }`}
             />
+            {applicantNicCheck.hasActiveLoan && (
+              <p className="text-[9.5px] font-black text-rose-600 mt-1 uppercase tracking-wider">
+                ⚠️ {lang === "si" 
+                  ? `දැනට සක්‍රීය ණය මුදලක් පවතී! (අංකය: ${applicantNicCheck.activeLoanRef})` 
+                  : `Active running loan detects! (Ref: ${applicantNicCheck.activeLoanRef})`}
+              </p>
+            )}
+            {applicantNicCheck.isActiveGuarantor && (
+              <p className="text-[9.5px] font-black text-amber-600 mt-1 uppercase tracking-wider">
+                ⚠️ {lang === "si" 
+                  ? `දැනට ${applicantNicCheck.guarantorLoanBorrowerName} ගේ ණයට ඇපකරුවෙකි! (අංකය: ${applicantNicCheck.guarantorLoanRef})` 
+                  : `Registered guarantor for ${applicantNicCheck.guarantorLoanBorrowerName}! (Ref: ${applicantNicCheck.guarantorLoanRef})`}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1 md:col-span-2">
@@ -223,6 +407,40 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
               onChange={(e) => setApplicant({ ...applicant, phone: e.target.value })}
               className="w-full px-4 py-2.5 rounded-xl border border-slate-250 focus:outline-hidden focus:border-indigo-600 bg-slate-50/50 text-slate-750 text-xs font-mono font-bold focus:bg-white transition"
             />
+          </div>
+
+          {/* Document Uploads Row */}
+          <div className="md:col-span-2 border-t border-slate-100 pt-5 mt-2">
+            <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-1.5 font-sans">
+              <ClipboardCheck className="w-4 h-4 text-indigo-500 animate-pulse" />
+              {lang === "si" ? "අවශ්‍ය ලිපි ලේඛන සහ පින්තූර (ණයකරු)" : "Required Photo Identifications & Proofs (Borrower)"}
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <ImageUploadField
+                label={lang === "si" ? "හැඳුනුම්පත ඉදිරිපස" : "Borrower ID Card (Front)"}
+                subLabel={lang === "si" ? "ID පතෙහි ඉදිරිපස පැහැදිලි පින්තූරයක්" : "Sharp focus front view of National ID"}
+                value={applicant.idFront}
+                onChange={(base64) => setApplicant({ ...applicant, idFront: base64 })}
+                onClear={() => setApplicant({ ...applicant, idFront: "" })}
+                lang={lang}
+              />
+              <ImageUploadField
+                label={lang === "si" ? "හැඳුනුම්පත පසුපස" : "Borrower ID Card (Back)"}
+                subLabel={lang === "si" ? "ID පතෙහි පසුපස පැහැදිලි පින්තූරයක්" : "Sharp focus back view of National ID"}
+                value={applicant.idBack}
+                onChange={(base64) => setApplicant({ ...applicant, idBack: base64 })}
+                onClear={() => setApplicant({ ...applicant, idBack: "" })}
+                lang={lang}
+              />
+              <ImageUploadField
+                label={lang === "si" ? "අත්සන් කළ ගිවිසුම් පත්‍රය" : "Signed Loan Application / Proof"}
+                subLabel={lang === "si" ? "අත්සන තහවුරු කළ මුළු පත්‍රයේ පින්තූරය" : "Signature-verified full application paper copy"}
+                value={applicant.signedDoc}
+                onChange={(base64) => setApplicant({ ...applicant, signedDoc: base64 })}
+                onClear={() => setApplicant({ ...applicant, signedDoc: "" })}
+                lang={lang}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -268,8 +486,28 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
               placeholder="NIC Code"
               value={relative.nic}
               onChange={(e) => setRelative({ ...relative, nic: e.target.value })}
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-250 focus:outline-hidden focus:border-indigo-600 bg-slate-50/50 text-slate-755 text-xs font-mono font-bold focus:bg-white transition"
+              className={`w-full px-4 py-2.5 rounded-xl border focus:outline-hidden transition text-xs font-mono font-bold focus:bg-white ${
+                relativeNicCheck.hasActiveLoan 
+                  ? "bg-rose-50/20 border-2 border-rose-500 text-rose-900 focus:border-rose-600 focus:ring-2 focus:ring-rose-500/10 shadow-sm" 
+                  : relativeNicCheck.isActiveGuarantor 
+                    ? "bg-amber-50/20 border-2 border-amber-500 text-amber-900 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/10 shadow-sm" 
+                    : "border-slate-250 focus:border-indigo-600 bg-slate-50/50 text-slate-755"
+              }`}
             />
+            {relativeNicCheck.hasActiveLoan && (
+              <p className="text-[9.5px] font-black text-rose-600 mt-1 uppercase tracking-wider">
+                ⚠️ {lang === "si" 
+                  ? `දැනට සක්‍රීය ණය මුදලක් පවතී! (අංකය: ${relativeNicCheck.activeLoanRef})` 
+                  : `Active running loan detects! (Ref: ${relativeNicCheck.activeLoanRef})`}
+              </p>
+            )}
+            {relativeNicCheck.isActiveGuarantor && (
+              <p className="text-[9.5px] font-black text-amber-600 mt-1 uppercase tracking-wider">
+                ⚠️ {lang === "si" 
+                  ? `දැනට ${relativeNicCheck.guarantorLoanBorrowerName} ගේ ණයට ඇපකරුවෙකි! (අංකය: ${relativeNicCheck.guarantorLoanRef})` 
+                  : `Registered guarantor for ${relativeNicCheck.guarantorLoanBorrowerName}! (Ref: ${relativeNicCheck.guarantorLoanRef})`}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -303,6 +541,30 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
               onChange={(e) => setRelative({ ...relative, workAddress: e.target.value })}
               className="w-full px-4 py-2.5 rounded-xl border border-slate-250 focus:outline-hidden focus:border-indigo-600 bg-slate-50/50 text-slate-750 text-xs font-semibold focus:bg-white transition"
             />
+          </div>
+
+          {/* Document Uploads Row for Relative/Endorser */}
+          <div className="md:col-span-2 border-t border-slate-105/50 pt-4 mt-1">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5 font-sans">
+              <Camera className="w-3.5 h-3.5 text-indigo-505" />
+              {lang === "si" ? "අවශ්‍ය හැඳුනුම්පත් ඡායාරූප (ඥාතීන් / නිර්දේශකයින්)" : "Required Photo Identifications (Relative / Reference)"}
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <ImageUploadField
+                label={lang === "si" ? "හැඳුනුම්පත ඉදිරිපස (ඥාති)" : "Relative/Ref ID (Front)"}
+                value={relative.idFront}
+                onChange={(base64) => setRelative({ ...relative, idFront: base64 })}
+                onClear={() => setRelative({ ...relative, idFront: "" })}
+                lang={lang}
+              />
+              <ImageUploadField
+                label={lang === "si" ? "හැඳුනුම්පත පසුපස (ඥාති)" : "Relative/Ref ID (Back)"}
+                value={relative.idBack}
+                onChange={(base64) => setRelative({ ...relative, idBack: base64 })}
+                onClear={() => setRelative({ ...relative, idBack: "" })}
+                lang={lang}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -376,13 +638,31 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
                 className="w-full px-3.5 py-2.5 text-xs font-bold placeholder-slate-400 rounded-xl border border-slate-250 bg-white"
               />
               <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  placeholder="NIC Code"
-                  value={guarantor1.nic}
-                  onChange={(e) => setGuarantor1({ ...guarantor1, nic: e.target.value })}
-                  className="w-full px-3.5 py-2.5 text-xs font-bold placeholder-slate-400 rounded-xl border border-slate-250 font-mono bg-white"
-                />
+                <div className="flex flex-col">
+                  <input
+                    type="text"
+                    placeholder="NIC Code"
+                    value={guarantor1.nic}
+                    onChange={(e) => setGuarantor1({ ...guarantor1, nic: e.target.value })}
+                    className={`w-full px-3.5 py-2.5 text-xs font-mono font-bold placeholder-slate-400 rounded-xl border focus:outline-hidden transition bg-white ${
+                      guarantor1NicCheck.hasActiveLoan 
+                        ? "border-2 border-rose-500 bg-rose-50/10 text-rose-900 focus:border-rose-600 focus:ring-2 focus:ring-rose-500/10 shadow-sm" 
+                        : guarantor1NicCheck.isActiveGuarantor 
+                          ? "border-2 border-amber-500 bg-amber-50/10 text-amber-900 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/10 shadow-sm" 
+                          : "border-slate-250 text-slate-755"
+                    }`}
+                  />
+                  {guarantor1NicCheck.hasActiveLoan && (
+                    <span className="text-[8.5px] font-black text-rose-600 mt-1 uppercase leading-tight">
+                      ⚠️ {lang === "si" ? `ණය ඇත! (${guarantor1NicCheck.activeLoanRef})` : `Active loan! (${guarantor1NicCheck.activeLoanRef})`}
+                    </span>
+                  )}
+                  {guarantor1NicCheck.isActiveGuarantor && (
+                    <span className="text-[8.5px] font-black text-amber-600 mt-1 uppercase leading-tight">
+                      ⚠️ {lang === "si" ? `ඇපකරු! (${guarantor1NicCheck.guarantorLoanRef})` : `Guarantor! (${guarantor1NicCheck.guarantorLoanRef})`}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="tel"
                   placeholder="Contact Line"
@@ -402,6 +682,23 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
                   {t.formG1Agree}
                 </span>
               </label>
+
+              <div className="grid grid-cols-2 gap-3 border-t border-slate-205/50 pt-3">
+                <ImageUploadField
+                  label={lang === "si" ? "හැඳුනුම්පත ඉදිරිපස" : "Guarantor 1 ID (Front)"}
+                  value={guarantor1.idFront}
+                  onChange={(base64) => setGuarantor1({ ...guarantor1, idFront: base64 })}
+                  onClear={() => setGuarantor1({ ...guarantor1, idFront: "" })}
+                  lang={lang}
+                />
+                <ImageUploadField
+                  label={lang === "si" ? "හැඳුනුම්පත පසුපස" : "Guarantor 1 ID (Back)"}
+                  value={guarantor1.idBack}
+                  onChange={(base64) => setGuarantor1({ ...guarantor1, idBack: base64 })}
+                  onClear={() => setGuarantor1({ ...guarantor1, idBack: "" })}
+                  lang={lang}
+                />
+              </div>
             </div>
           </div>
 
@@ -426,13 +723,31 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
                 className="w-full px-3.5 py-2.5 text-xs font-bold placeholder-slate-400 rounded-xl border border-slate-250 bg-white"
               />
               <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  placeholder="NIC Code"
-                  value={guarantor2.nic}
-                  onChange={(e) => setGuarantor2({ ...guarantor2, nic: e.target.value })}
-                  className="w-full px-3.5 py-2.5 text-xs font-bold placeholder-slate-400 rounded-xl border border-slate-250 font-mono bg-white"
-                />
+                <div className="flex flex-col">
+                  <input
+                    type="text"
+                    placeholder="NIC Code"
+                    value={guarantor2.nic}
+                    onChange={(e) => setGuarantor2({ ...guarantor2, nic: e.target.value })}
+                    className={`w-full px-3.5 py-2.5 text-xs font-mono font-bold placeholder-slate-400 rounded-xl border focus:outline-hidden transition bg-white ${
+                      guarantor2NicCheck.hasActiveLoan 
+                        ? "border-2 border-rose-500 bg-rose-50/10 text-rose-900 focus:border-rose-600 focus:ring-2 focus:ring-rose-500/10 shadow-sm" 
+                        : guarantor2NicCheck.isActiveGuarantor 
+                          ? "border-2 border-amber-500 bg-amber-50/10 text-amber-900 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/10 shadow-sm" 
+                          : "border-slate-250 text-slate-755"
+                    }`}
+                  />
+                  {guarantor2NicCheck.hasActiveLoan && (
+                    <span className="text-[8.5px] font-black text-rose-600 mt-1 uppercase leading-tight">
+                      ⚠️ {lang === "si" ? `ණය ඇත! (${guarantor2NicCheck.activeLoanRef})` : `Active loan! (${guarantor2NicCheck.activeLoanRef})`}
+                    </span>
+                  )}
+                  {guarantor2NicCheck.isActiveGuarantor && (
+                    <span className="text-[8.5px] font-black text-amber-600 mt-1 uppercase leading-tight">
+                      ⚠️ {lang === "si" ? `ඇපකරු! (${guarantor2NicCheck.guarantorLoanRef})` : `Guarantor! (${guarantor2NicCheck.guarantorLoanRef})`}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="tel"
                   placeholder="Contact Line"
@@ -452,6 +767,23 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
                   {t.formG2Agree}
                 </span>
               </label>
+
+              <div className="grid grid-cols-2 gap-3 border-t border-slate-205/50 pt-3">
+                <ImageUploadField
+                  label={lang === "si" ? "හැඳුනුම්පත ඉදිරිපස" : "Guarantor 2 ID (Front)"}
+                  value={guarantor2.idFront}
+                  onChange={(base64) => setGuarantor2({ ...guarantor2, idFront: base64 })}
+                  onClear={() => setGuarantor2({ ...guarantor2, idFront: "" })}
+                  lang={lang}
+                />
+                <ImageUploadField
+                  label={lang === "si" ? "හැඳුනුම්පත පසුපස" : "Guarantor 2 ID (Back)"}
+                  value={guarantor2.idBack}
+                  onChange={(base64) => setGuarantor2({ ...guarantor2, idBack: base64 })}
+                  onClear={() => setGuarantor2({ ...guarantor2, idBack: "" })}
+                  lang={lang}
+                />
+              </div>
             </div>
           </div>
         </div>

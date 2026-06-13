@@ -142,12 +142,18 @@ create table if not exists public.field_officers (
     joined_date text,
     target_collection numeric,
     status text default 'ACTIVE',
+    position text default 'FIELD_OFFICER',
+    can_approve_loans boolean default false,
     expenses jsonb default '[]'::jsonb,
     allowances jsonb default '[]'::jsonb,
     remittances jsonb default '[]'::jsonb,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null,
     synced_at timestamp with time zone default timezone('utc'::text, now())
 );
+
+-- Backward compatibility columns (in case tables are already created)
+alter table public.field_officers add column if not exists position text default 'FIELD_OFFICER';
+alter table public.field_officers add column if not exists can_approve_loans boolean default false;
 
 -- Enable Row Level Security (RLS) on field_officers
 alter table public.field_officers enable row level security;
@@ -189,6 +195,25 @@ alter publication supabase_realtime add table public.investors;
 comment on table public.loans is 'Seth Capital Loan Ledger and Collections Records';
 comment on table public.field_officers is 'Seth Capital field representatives, employee target, expenses, allowances and cash remittances logs';
 comment on table public.investors is 'Seth Capital microfinance external seed funding partners, nomimees and capital transactions sheets';
+
+-- 4. BUCKET SETUP FOR ATTACHMENTS & PHOTOS (loan-documents)
+-- Create bucket if it doesn't exist
+insert into storage.buckets (id, name, public)
+values ('loan-documents', 'loan-documents', true)
+on conflict (id) do nothing;
+
+-- Storage policies to allow public (anyone) to upload, read, update and delete (upsert) documents
+create policy "Allow public uploads for loan documents" on storage.objects
+    for insert to public with check (bucket_id = 'loan-documents');
+
+create policy "Allow public reads for loan documents" on storage.objects
+    for select to public using (bucket_id = 'loan-documents');
+
+create policy "Allow public updates for loan documents" on storage.objects
+    for update to public using (bucket_id = 'loan-documents');
+
+create policy "Allow public deletes for loan documents" on storage.objects
+    for delete to public using (bucket_id = 'loan-documents');
 `;
 
 // Conversion helpers for Loans
@@ -240,6 +265,8 @@ function toDbFieldOfficer(officer: FieldOfficer) {
     allowances: officer.allowances || [],
     remittances: officer.remittances || [],
     created_at: officer.createdAt,
+    position: officer.position || 'FIELD_OFFICER',
+    can_approve_loans: officer.canApproveLoans || false,
   };
 }
 
@@ -260,6 +287,8 @@ function toAppFieldOfficer(row: any): FieldOfficer {
     allowances: typeof row.allowances === 'string' ? JSON.parse(row.allowances) : (row.allowances || []),
     remittances: typeof row.remittances === 'string' ? JSON.parse(row.remittances) : (row.remittances || []),
     createdAt: row.created_at || new Date().toISOString(),
+    position: row.position || 'FIELD_OFFICER',
+    canApproveLoans: row.can_approve_loans !== undefined ? !!row.can_approve_loans : false,
   };
 }
 
@@ -323,16 +352,154 @@ export async function getLoansFromSupabase(): Promise<Loan[]> {
   return (data || []).map(toAppModel);
 }
 
-export async function sendLoanToSupabase(loan: Loan): Promise<void> {
-  const client = getClient();
-  if (!client) throw new Error("Supabase client is not configured");
+// Helper to convert base64 image data URL to a binary Blob
+function dataURLtoBlob(dataurl: string): Blob {
+  const arr = dataurl.split(",");
+  const mimeMatch = arr[0].match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : "image/jpeg";
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new Blob([u8arr], { type: mime });
+}
 
-  const dModel = toDbModel(loan);
+// Helper to upload base64 images to Supabase Storage bucket
+async function uploadBase64Image(client: any, base64: string, path: string): Promise<string> {
+  if (!base64 || typeof base64 !== "string") return "";
+  if (base64.startsWith("http://") || base64.startsWith("https://")) {
+    return base64; // already uploaded, return as-is
+  }
+
+  try {
+    if (!base64.includes(",")) return base64;
+    
+    const blob = dataURLtoBlob(base64);
+    
+    // Auto-create bucket if it doesn't exist (fails silently if already exists or unauthorized)
+    try {
+      await client.storage.createBucket("loan-documents", { public: true });
+    } catch (e) {
+      // Ignored
+    }
+
+    const { errorUpload } = await client.storage
+      .from("loan-documents")
+      .upload(path, blob, {
+        contentType: blob.type,
+        upsert: true
+      });
+
+    if (errorUpload) {
+      console.error(`Supabase storage upload error for path: ${path}`, errorUpload);
+      return base64; // fallback
+    }
+
+    const { data: publicUrlData } = client.storage
+      .from("loan-documents")
+      .getPublicUrl(path);
+
+    return publicUrlData?.publicUrl || base64;
+  } catch (e) {
+    console.error(`Exception during storage upload for ${path}`, e);
+    return base64;
+  }
+}
+
+export async function sendLoanToSupabase(loan: Loan): Promise<Loan> {
+  const client = getClient();
+  if (!client) {
+    return loan; // no client, fallback to original offline-state saving
+  }
+
+  // Clone to avoid side effects
+  const updatedLoan = JSON.parse(JSON.stringify(loan)) as Loan;
+
+  try {
+    // 1. Upload Applicant Photos
+    if (updatedLoan.applicant.idFront) {
+      updatedLoan.applicant.idFront = await uploadBase64Image(
+        client,
+        updatedLoan.applicant.idFront,
+        `loans/${loan.id}/applicant_idFront.jpg`
+      );
+    }
+    if (updatedLoan.applicant.idBack) {
+      updatedLoan.applicant.idBack = await uploadBase64Image(
+        client,
+        updatedLoan.applicant.idBack,
+        `loans/${loan.id}/applicant_idBack.jpg`
+      );
+    }
+    if (updatedLoan.applicant.signedDoc) {
+      updatedLoan.applicant.signedDoc = await uploadBase64Image(
+        client,
+        updatedLoan.applicant.signedDoc,
+        `loans/${loan.id}/applicant_signedDoc.jpg`
+      );
+    }
+
+    // 2. Upload Relative Photos
+    if (updatedLoan.relative?.idFront) {
+      updatedLoan.relative.idFront = await uploadBase64Image(
+        client,
+        updatedLoan.relative.idFront,
+        `loans/${loan.id}/relative_idFront.jpg`
+      );
+    }
+    if (updatedLoan.relative?.idBack) {
+      updatedLoan.relative.idBack = await uploadBase64Image(
+        client,
+        updatedLoan.relative.idBack,
+        `loans/${loan.id}/relative_idBack.jpg`
+      );
+    }
+
+    // 3. Upload Guarantor 1 Photos
+    if (updatedLoan.guarantor1?.idFront) {
+      updatedLoan.guarantor1.idFront = await uploadBase64Image(
+        client,
+        updatedLoan.guarantor1.idFront,
+        `loans/${loan.id}/guarantor1_idFront.jpg`
+      );
+    }
+    if (updatedLoan.guarantor1?.idBack) {
+      updatedLoan.guarantor1.idBack = await uploadBase64Image(
+        client,
+        updatedLoan.guarantor1.idBack,
+        `loans/${loan.id}/guarantor1_idBack.jpg`
+      );
+    }
+
+    // 4. Upload Guarantor 2 Photos
+    if (updatedLoan.guarantor2?.idFront) {
+      updatedLoan.guarantor2.idFront = await uploadBase64Image(
+        client,
+        updatedLoan.guarantor2.idFront,
+        `loans/${loan.id}/guarantor2_idFront.jpg`
+      );
+    }
+    if (updatedLoan.guarantor2?.idBack) {
+      updatedLoan.guarantor2.idBack = await uploadBase64Image(
+        client,
+        updatedLoan.guarantor2.idBack,
+        `loans/${loan.id}/guarantor2_idBack.jpg`
+      );
+    }
+  } catch (err) {
+    console.error("Storage upload pipe failed, falls back to direct saving", err);
+  }
+
+  const dModel = toDbModel(updatedLoan);
   const { error } = await client
     .from("loans")
     .upsert(dModel, { onConflict: "id" });
 
   if (error) throw error;
+  
+  return updatedLoan;
 }
 
 export async function deleteLoanFromSupabase(loanId: string): Promise<void> {

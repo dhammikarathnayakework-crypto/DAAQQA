@@ -18,11 +18,168 @@ import {
   Check,
   Printer,
   ChevronRight,
-  Calculator
+  Calculator,
+  Eye,
+  Trash2,
+  Upload,
+  Bell,
+  Camera
 } from "lucide-react";
 import { FieldOfficer, Loan, OfficerAllowance, OfficerExpense, OfficerRemittance, PaymentCollection, OfficerRepTransfer } from "../types";
-import { formatLKR, generateId } from "../utils";
+import { formatLKR, generateId, checkNicStatus } from "../utils";
 import { translations, Language } from "../translations";
+
+interface ImageUploadFieldProps {
+  label: string;
+  subLabel?: string;
+  value?: string;
+  onChange: (base64: string) => void;
+  onClear: () => void;
+  lang: Language;
+}
+
+function ImageUploadField({ label, subLabel, value, onChange, onClear, lang }: ImageUploadFieldProps) {
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputId = React.useId();
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      compressAndLoad(e.target.files[0]);
+    }
+  };
+
+  const compressAndLoad = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL("image/jpeg", 0.7);
+          onChange(compressed);
+        } else {
+          onChange(e.target?.result as string);
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      compressAndLoad(e.dataTransfer.files[0]);
+    }
+  };
+
+  return (
+    <div className="space-y-1">
+      <label className="text-[10px] font-black text-slate-400 uppercase block tracking-wider">
+        {label}
+      </label>
+      {value ? (
+        <div className="relative border border-slate-200 rounded-xl overflow-hidden group bg-slate-50 flex items-center justify-center h-28">
+          <img
+            src={value}
+            alt={label}
+            className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+            referrerPolicy="no-referrer"
+          />
+          <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition duration-205 flex items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const w = window.open();
+                if (w) {
+                  w.document.write(`<img src="${value}" style="max-width:100%; max-height:100vh; display:block; margin:auto;"/>`);
+                }
+              }}
+              className="p-1.5 bg-white/20 hover:bg-white/40 text-white rounded-lg transition shrink-0"
+              title="View full"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onClear}
+              className="p-1.5 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg transition shrink-0"
+              title="Delete"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="absolute bottom-1 right-2 bg-slate-900/40 backdrop-blur-xs px-1.5 py-0.5 rounded text-[8px] font-bold text-white uppercase tracking-wider flex items-center gap-1">
+            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+            {lang === "si" ? "සූදානම්" : "Uploaded"}
+          </div>
+        </div>
+      ) : (
+        <div
+          onDragEnter={handleDrag}
+          onDragOver={handleDrag}
+          onDragLeave={handleDrag}
+          onDrop={handleDrop}
+          className={`border-2 border-dashed rounded-xl h-28 flex flex-col items-center justify-center p-2 text-center transition cursor-pointer relative bg-slate-50/50 ${
+            dragActive ? "border-indigo-500 bg-indigo-50/20" : "border-slate-200 hover:border-slate-350 hover:bg-slate-50"
+          }`}
+          onClick={() => {
+            const el = document.getElementById(fileInputId);
+            if (el) el.click();
+          }}
+        >
+          <input
+            id={fileInputId}
+            type="file"
+            accept="image/*"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <Upload className="w-5 h-5 text-slate-400 mb-1" />
+          <span className="text-[10px] font-extrabold text-slate-650">
+            {lang === "si" ? "පින්තූරය තෝරන්න" : "Choose Image"}
+          </span>
+          <span className="text-[8px] text-slate-400 mt-0.5">
+            {lang === "si" ? "හෝ ඇදගෙන එන්න" : "or drag & drop"}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface FieldOfficerHubProps {
   officer: FieldOfficer;
@@ -35,6 +192,7 @@ interface FieldOfficerHubProps {
   onAddRepTransfer: (fromOfficerId: string, transfer: OfficerRepTransfer) => void;
   onUpdateRepTransfer: (fromOfficerId: string, transferId: string, status: 'ACCEPTED'|'REJECTED') => void;
   onAddLoan: (loan: Loan) => void;
+  onUpdateLoan: (loan: Loan) => void;
   onLogout: () => void;
   lang: Language;
 }
@@ -50,12 +208,81 @@ export default function FieldOfficerHub({
   onAddRepTransfer,
   onUpdateRepTransfer,
   onAddLoan,
+  onUpdateLoan,
   onLogout,
   lang
 }: FieldOfficerHubProps) {
   const t = translations[lang];
   const [activeTab, setActiveTab] = useState<'WORKSPACE' | 'NEW_CLIENT' | 'COLLECT' | 'EXPENSE_REMIT' | 'EOD'>('WORKSPACE');
   const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
+
+  // Approved loan notifications track
+  const [acknowledgedList, setAcknowledgedList] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`seth-capital-ack-loans-${officer.id}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const handleAcknowledgeApproval = (id: string) => {
+    const next = [...acknowledgedList, id];
+    setAcknowledgedList(next);
+    localStorage.setItem(`seth-capital-ack-loans-${officer.id}`, JSON.stringify(next));
+  };
+
+  const pendingApprovalsAlerts = loans.filter((l) => 
+    l.status === "ACTIVE" && 
+    l.officeUse?.createdByOfficerId === officer.id && 
+    !l.officeUse?.disbursedByOfficerId &&
+    !acknowledgedList.includes(l.id)
+  );
+
+  const approvedLoansAwaitingDisbursement = loans.filter((l) => 
+    l.status === "ACTIVE" &&
+    l.officeUse?.createdByOfficerId === officer.id &&
+    (!l.officeUse?.disbursedByOfficerId)
+  );
+
+  const handleDisburseCash = (loanId: string) => {
+    const loan = loans.find(l => l.id === loanId);
+    if (!loan) return;
+
+    const approvedAmount = loan.officeUse.approvedAmount;
+
+    if (currentCashInHand < approvedAmount) {
+      const confirmForce = window.confirm(
+        lang === "si"
+          ? `අනතුරු ඇඟවීමයි: ඔබගේ අතැති මුදල් ශේෂය (${formatLKR(currentCashInHand)}) මෙම ණය මුදල ලබා දීමට ප්‍රමාණවත් නොවේ (${formatLKR(approvedAmount)}). එසේ වුවද මෙම ණය මුදල ලබා දීම තහවුරු කරනවාද?`
+          : `Warning: Your current cash in hand (${formatLKR(currentCashInHand)}) is less than the approved loan amount (${formatLKR(approvedAmount)}). Do you still want to proceed with disbursement?`
+      );
+      if (!confirmForce) return;
+    } else {
+      const confirmDisburse = window.confirm(
+        lang === "si"
+          ? `ඔබ විසින් මෙම පාරිභෝගිකයාට (${loan.applicant.fullName}) රු. ${formatLKR(approvedAmount)} ක මුදල අතට දීම සිදු කළ බව තහවුරු කරනවාද? මෙය ඔබගේ අතැති මුදල් ශේෂයෙන් (float) අඩු වේ.`
+          : `Are you sure you physically handed over Rs. ${formatLKR(approvedAmount)} to ${loan.applicant.fullName}? This will decrease your float balance.`
+      );
+      if (!confirmDisburse) return;
+    }
+
+    const updatedLoanObj: Loan = {
+      ...loan,
+      officeUse: {
+        ...loan.officeUse,
+        disbursedByOfficerId: officer.id,
+        loanDate: new Date().toISOString().split("T")[0] // Set disbursement date as today
+      }
+    };
+
+    onUpdateLoan(updatedLoanObj);
+    alert(
+      lang === "si"
+        ? `රු. ${formatLKR(approvedAmount)} ක ණය මුදල ${loan.applicant.fullName} වෙත ගෙවීම සාර්ථකව සටහන් කරන ලදී!`
+        : `Disbursement of ${formatLKR(approvedAmount)} to ${loan.applicant.fullName} successfully completed!`
+    );
+  };
 
   // Counting Approval Modals / Select states
   const [confirmingAllowance, setConfirmingAllowance] = useState<OfficerAllowance | null>(null);
@@ -74,6 +301,49 @@ export default function FieldOfficerHub({
   // Expense states
   const [expAmount, setExpAmount] = useState("");
   const [expDesc, setExpDesc] = useState("");
+  const [expBillImage, setExpBillImage] = useState<string>("");
+
+  const handleBillFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = (re) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX_WIDTH = 600;
+          const MAX_HEIGHT = 600;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL("image/jpeg", 0.6);
+            setExpBillImage(compressed);
+          } else {
+            setExpBillImage(re.target?.result as string);
+          }
+        };
+        img.src = re.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
   
   // Remittance states
   const [remAmount, setRemAmount] = useState("");
@@ -101,6 +371,19 @@ export default function FieldOfficerHub({
   const [g1Nic, setG1Nic] = useState("");
   const [g1Phone, setG1Phone] = useState("");
   const [g1Address, setG1Address] = useState("");
+
+  const custNicCheck = checkNicStatus(custNic, loans);
+  const relNicCheck = checkNicStatus(relNic, loans);
+  const g1NicCheck = checkNicStatus(g1Nic, loans);
+
+  // Document Upload States
+  const [appIdFront, setAppIdFront] = useState("");
+  const [appIdBack, setAppIdBack] = useState("");
+  const [appSignedDoc, setAppSignedDoc] = useState("");
+  const [relIdFront, setRelIdFront] = useState("");
+  const [relIdBack, setRelIdBack] = useState("");
+  const [g1IdFront, setG1IdFront] = useState("");
+  const [g1IdBack, setG1IdBack] = useState("");
 
   const [loanSuccess, setLoanSuccess] = useState<string>("");
 
@@ -219,12 +502,14 @@ export default function FieldOfficerHub({
       date: new Date().toISOString().split("T")[0],
       amount,
       description: expDesc,
+      billImage: expBillImage || undefined,
       status: 'APPROVED' // Rep saves direct expenses in field
     };
 
     onAddOfficerExpense(officer.id, expObj);
     setExpAmount("");
     setExpDesc("");
+    setExpBillImage("");
     alert(lang === "si" ? "වියදම සාර්ථකව සටහන් විය!" : "Expense logged successfully!");
   };
 
@@ -298,14 +583,30 @@ export default function FieldOfficerHub({
     const total = amt + interest;
     const monthlyInst = Math.round(total / instCount);
 
+    // Calculate the next sequential loan application number
+    let maxNum = 1000;
+    loans.forEach(l => {
+      const appNum = l.officeUse?.applicationNumber;
+      if (appNum && appNum.startsWith("SCL-")) {
+        const numericPart = parseInt(appNum.replace("SCL-", ""), 10);
+        if (!isNaN(numericPart) && numericPart > maxNum) {
+          maxNum = numericPart;
+        }
+      }
+    });
+    const nextAppNumber = `SCL-${maxNum + 1}`;
+
     const newLoanObj: Loan = {
       id: `loan-${generateId()}`,
-      status: "ACTIVE",
+      status: "PENDING", // Under Core Office approval workflow
       applicant: {
         fullName: custName,
         nic: custNic,
         phone: custPhone || "N/A",
-        address: custAddress || "Field Client"
+        address: custAddress || "Field Client",
+        idFront: appIdFront || undefined,
+        idBack: appIdBack || undefined,
+        signedDoc: appSignedDoc || undefined
       },
       relative: {
         relationship: relRelationship || "Relative",
@@ -313,7 +614,9 @@ export default function FieldOfficerHub({
         nic: relNic || "N/A",
         phone: relPhone || "N/A",
         address: relAddress || "Same Address",
-        workAddress: "N/A"
+        workAddress: "N/A",
+        idFront: relIdFront || undefined,
+        idBack: relIdBack || undefined
       },
       loanDetails: {
         requestedAmount: amt,
@@ -324,7 +627,9 @@ export default function FieldOfficerHub({
         nic: g1Nic || "N/A",
         phone: g1Phone || "N/A",
         address: g1Address || "N/A",
-        isAgreed: true
+        isAgreed: true,
+        idFront: g1IdFront || undefined,
+        idBack: g1IdBack || undefined
       },
       guarantor2: {
         name: "Field Verification Officer",
@@ -334,13 +639,16 @@ export default function FieldOfficerHub({
         isAgreed: true
       },
       officeUse: {
-        applicationNumber: `SCL-FLD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+        applicationNumber: nextAppNumber, // Sequential short ID copy
         approvedAmount: amt,
         interestRate: rate,
         installmentsCount: instCount,
         monthlyInstallment: monthlyInst,
         specialNotes: `Assigned Field Representative: ${officer.name} (${officer.id})`,
-        loanDate: new Date().toISOString().split("T")[0]
+        loanDate: new Date().toISOString().split("T")[0],
+        createdByOfficerId: officer.id,
+        createdByOfficerName: officer.name,
+        createdByOfficerEmpId: officer.employeeId || "N/A"
       },
       collections: [],
       createdAt: new Date().toISOString()
@@ -349,8 +657,8 @@ export default function FieldOfficerHub({
     onAddLoan(newLoanObj);
 
     setLoanSuccess(lang === "si" 
-      ? `ණය අයදුම්කරු ${custName} සාර්ථකව පද්ධතියට ඇතුලත් කල අතර ණය මුදල් නිකුත් කෙරුණි!` 
-      : `Applicant ${custName} registered successfully. Core loan ledger is active!`);
+      ? `ණය අයදුම්කරු ${custName} ගේ අයදුම්පත (${nextAppNumber}) සාර්ථකව ඇතුලත් කරන ලදි! එය දැන් ප්‍රධාන කාර්යාලයේ අනුමැතිය (Approval) සඳහා පොරොත්තුවෙන් පවතී.` 
+      : `Applicant ${custName}'s core loan folder (${nextAppNumber}) has been submitted successfully! Waiting for office supervisor approval.`);
     
     // Clear inputs
     setCustName("");
@@ -368,6 +676,13 @@ export default function FieldOfficerHub({
     setG1Nic("");
     setG1Phone("");
     setG1Address("");
+    setAppIdFront("");
+    setAppIdBack("");
+    setAppSignedDoc("");
+    setRelIdFront("");
+    setRelIdBack("");
+    setG1IdFront("");
+    setG1IdBack("");
 
     setTimeout(() => setLoanSuccess(""), 5000);
   };
@@ -622,7 +937,8 @@ export default function FieldOfficerHub({
       )}
 
       {/* Tab Navigation Bars specifically designed for officer profile */}
-      <div className="bg-white border border-slate-100 rounded-3xl p-2 shadow-xs">
+      {/* Desktop Tabs */}
+      <div className="hidden md:block bg-white border border-slate-100 rounded-3xl p-2 shadow-xs">
         <div className="flex flex-wrap gap-1">
           {[
             { id: 'WORKSPACE', label: lang === "si" ? "අත්මුදල් මේසය" : "Cash Counter", icon: Coins, count: pendingAllowances.length || undefined },
@@ -656,8 +972,85 @@ export default function FieldOfficerHub({
         </div>
       </div>
 
+      {/* Mobile Sticky Bottom Tab Bar */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-900 text-white border-t border-slate-800 shadow-[0_-8px_24px_rgba(0,0,0,0.35)] flex justify-around items-center px-1.5 py-2.5 pb-safe rounded-t-2xl">
+        {[
+          { id: 'WORKSPACE', label: lang === "si" ? "අත්මුදල්" : "Counter", icon: Coins, count: pendingAllowances.length || undefined },
+          { id: 'NEW_CLIENT', label: lang === "si" ? "ණය ඇප්" : "Loan App", icon: FilePlus },
+          { id: 'COLLECT', label: lang === "si" ? "අයකිරීම්" : "Collect", icon: TrendingUp },
+          { id: 'EXPENSE_REMIT', label: lang === "si" ? "කාර්යාල" : "Handover", icon: TrendingDown },
+          { id: 'EOD', label: lang === "si" ? "EOD" : "EOD", icon: Smartphone }
+        ].map(t => {
+          const Icon = t.icon;
+          const isSel = activeTab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id as any)}
+              className="flex-1 flex flex-col items-center justify-center relative cursor-pointer active:scale-95 transition"
+            >
+              <div className={`p-1.5 rounded-xl transition-all duration-300 ${isSel ? 'bg-indigo-600 text-white shadow-md shadow-indigo-650/30' : 'text-slate-400'}`}>
+                <Icon className="w-4.5 h-4.5" />
+              </div>
+              <span className={`text-[8px] mt-1 truncate max-w-full tracking-tighter ${isSel ? 'text-indigo-300 font-black' : 'text-slate-400 font-medium'}`}>
+                {t.label}
+              </span>
+              {t.count !== undefined && (
+                <span className="absolute -top-0.5 right-2 sm:right-4 bg-rose-500 text-white text-[8px] font-black px-1 rounded-full border border-slate-900 animate-pulse">
+                  {t.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Main Container contents driven by tabs */}
       <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-xs min-h-[400px]">
+        {/* Real-time Loan Approval Push Notifications */}
+        {pendingApprovalsAlerts.length > 0 && (
+          <div className="mb-6 space-y-2.5 max-w-5xl mx-auto shadow-xs">
+            {pendingApprovalsAlerts.map(l => (
+              <div key={l.id} className="p-4 bg-emerald-50 border border-emerald-150 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex gap-3">
+                  <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-md flex items-center justify-center shrink-0">
+                    <Bell className="w-5 h-5 animate-pulse" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-emerald-950 flex items-center gap-1.5 leading-snug">
+                      {lang === 'si' ? '🔔 ඔබ ඉදිරිපත් කළ ණය අයදුම්පතක් අනුමත විය!' : '🔔 Your Loan Application is APPROVED!'}
+                    </h4>
+                    <p className="text-[10px] text-emerald-700 font-bold mt-1 leading-normal">
+                      {lang === 'si' 
+                        ? `${l.applicant.fullName} වෙනුවෙන් ඔබ ඉදිරිපත් කළ ${l.officeUse.applicationNumber} දරණ ණය අයදුම්පත ප්‍රධාන කාර්යාලය විසින් අනුමත කර (APPROVED) ඇත! කරුණාකර මුදල් ලබාදී එය තහවුරු කරන්න.`
+                        : `Your submitted loan application for ${l.applicant.fullName} (App No: ${l.officeUse.applicationNumber}) has been approved by the main office. Please disburse the cash to client.`}
+                    </p>
+                    <p className="text-[10px] text-indigo-700 font-extrabold mt-1 font-mono uppercase">
+                      {lang === 'si' ? `අනුමත මුදල: රු. ${formatLKR(l.officeUse.approvedAmount)}` : `Approved Amount: LKR ${formatLKR(l.officeUse.approvedAmount)}`}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                  <button
+                    type="button"
+                    onClick={() => handleDisburseCash(l.id)}
+                    className="bg-emerald-600 hover:bg-emerald-750 text-white text-[10px] font-black px-4 py-2 rounded-xl transition cursor-pointer active:scale-95 shadow-xs uppercase tracking-wider"
+                  >
+                    {lang === 'si' ? 'මුදල් ලබාදෙන්න' : 'Disburse Cash'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAcknowledgeApproval(l.id)}
+                    className="bg-slate-200/80 hover:bg-slate-300/80 text-slate-700 text-[10px] font-extrabold px-3 py-2 rounded-xl transition cursor-pointer active:scale-95 uppercase"
+                  >
+                    {lang === 'si' ? 'දැනුවත් වුණා' : 'Got It'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {activeTab === 'WORKSPACE' && (
           <div className="space-y-6">
             
@@ -680,6 +1073,57 @@ export default function FieldOfficerHub({
                 <span className="text-xl font-black text-white font-mono block mt-1">{formatLKR(currentCashInHand)}</span>
               </div>
             </div>
+
+            {/* Approved Loans Awaiting Cash Handover List */}
+            {approvedLoansAwaitingDisbursement.length > 0 && (
+              <div className="bg-amber-50/20 border-2 border-amber-200 rounded-3xl p-5 space-y-4">
+                <div>
+                  <h4 className="text-xs font-black uppercase text-amber-950 tracking-wider flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                    {lang === "si" ? "අනුමත මුදල් ගෙවීමට ඇති ණය (Loans Awaiting Cash Handover)" : "Approved Loans Awaiting Cash Handover"}
+                  </h4>
+                  <p className="text-[10px] text-amber-800 font-bold mt-1">
+                    {lang === "si" 
+                      ? "මෙම ගනුදෙනුකරුවන්ට අදාළ ණය මුදල් ලබා දී 'මුදල් ලබාදුන්නා' යන්න ක්ලික් කර එය තහවුරු කරන්න. ඉන්පසු එය ඔබගේ අතැති මුදල් (float) වලින් අඩු වේ."
+                      : "Hand over the approved money physical notes to these clients and confirm. It will deduct from your cash float balance."}
+                  </p>
+                </div>
+
+                <div className="overflow-x-auto border border-amber-200/60 rounded-2xl bg-white">
+                  <table className="w-full text-left font-sans text-xs">
+                    <thead className="bg-amber-100/50 text-amber-900 font-extrabold uppercase text-[9px] border-b border-amber-200/50">
+                      <tr>
+                        <th className="p-3">{lang === "si" ? "ණය අංකය" : "App Ref"}</th>
+                        <th className="p-3">{lang === "si" ? "පාරිභෝගිකයා" : "Client / Applicant"}</th>
+                        <th className="p-3 text-right">{lang === "si" ? "අනුමත මුදල" : "Approved Amount"}</th>
+                        <th className="p-3 text-center">{lang === "si" ? "ක්‍රියාව" : "Action"}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-200/30 text-slate-755">
+                      {approvedLoansAwaitingDisbursement.map(l => (
+                        <tr key={l.id} className="hover:bg-amber-50/10">
+                          <td className="p-3 font-mono font-bold text-indigo-750">{l.officeUse.applicationNumber}</td>
+                          <td className="p-3">
+                            <p className="font-extrabold text-slate-900 leading-snug">{l.applicant.fullName}</p>
+                            <p className="text-[9.5px] font-mono text-slate-500">NIC: {l.applicant.nic} | TEL: {l.applicant.phone}</p>
+                          </td>
+                          <td className="p-3 text-right font-black font-mono text-slate-900">{formatLKR(l.officeUse.approvedAmount)}</td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleDisburseCash(l.id)}
+                              className="bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-black px-4 py-1.8 rounded-xl transition cursor-pointer active:scale-95 shadow-md shadow-amber-500/10 uppercase tracking-wide"
+                            >
+                              {lang === "si" ? "මුදල් ලබාදුන්නා" : "Confirm Handover"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* List of ALL Approved Allocations received this period */}
             <div>
@@ -821,8 +1265,28 @@ export default function FieldOfficerHub({
                       value={custNic}
                       onChange={(e) => setCustNic(e.target.value)}
                       placeholder="e.g. 199015002444 / 901500244V"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-500"
+                      className={`w-full rounded-xl px-3 py-2 text-xs outline-none transition-all ${
+                        custNicCheck.hasActiveLoan 
+                          ? "bg-rose-50/25 border-2 border-rose-500 text-rose-900 focus:border-rose-600 focus:ring-2 focus:ring-rose-500/10 shadow-sm" 
+                          : custNicCheck.isActiveGuarantor 
+                            ? "bg-amber-50/25 border-2 border-amber-500 text-amber-900 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/10 shadow-sm" 
+                            : "bg-slate-50 border border-slate-200 text-slate-800 focus:border-indigo-500"
+                      }`}
                     />
+                    {custNicCheck.hasActiveLoan && (
+                      <p className="text-[9.5px] font-black text-rose-600 mt-1 uppercase tracking-wider">
+                        ⚠️ {lang === "si" 
+                          ? `දැනට පවතින සක්‍රීය ණය මුදලක් පවතී! (අංකය: ${custNicCheck.activeLoanRef})` 
+                          : `Active running loan detects! (Ref: ${custNicCheck.activeLoanRef})`}
+                      </p>
+                    )}
+                    {custNicCheck.isActiveGuarantor && (
+                      <p className="text-[9.5px] font-black text-amber-600 mt-1 uppercase tracking-wider">
+                        ⚠️ {lang === "si" 
+                          ? `දැනට ${custNicCheck.guarantorLoanBorrowerName} ගේ ණයට ඇපකරුවෙකි! (අංකය: ${custNicCheck.guarantorLoanRef})` 
+                          : `Registered guarantor for ${custNicCheck.guarantorLoanBorrowerName}! (Ref: ${custNicCheck.guarantorLoanRef})`}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="text-[9px] font-bold text-slate-500 uppercase block mb-1">{lang === "si" ? "ජංගම දුරකථන අංකය" : "Mobile Phone"}</label>
@@ -844,6 +1308,31 @@ export default function FieldOfficerHub({
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-500"
                     />
                   </div>
+                </div>
+
+                {/* Applicant Image Uploads Row */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                  <ImageUploadField
+                    label={lang === "si" ? "හැඳුනුම්පත් ඉදිරිපස (NIC Front)" : "NIC Front"}
+                    value={appIdFront}
+                    onChange={(b64) => setAppIdFront(b64)}
+                    onClear={() => setAppIdFront("")}
+                    lang={lang}
+                  />
+                  <ImageUploadField
+                    label={lang === "si" ? "හැඳුනුම්පත් පසුපස (NIC Back)" : "NIC Back"}
+                    value={appIdBack}
+                    onChange={(b64) => setAppIdBack(b64)}
+                    onClear={() => setAppIdBack("")}
+                    lang={lang}
+                  />
+                  <ImageUploadField
+                    label={lang === "si" ? "ගිවිසුම් ලේඛනය / ඡායාරූපය" : "Contract document / Photo"}
+                    value={appSignedDoc}
+                    onChange={(b64) => setAppSignedDoc(b64)}
+                    onClear={() => setAppSignedDoc("")}
+                    lang={lang}
+                  />
                 </div>
               </div>
 
@@ -878,8 +1367,28 @@ export default function FieldOfficerHub({
                       value={relNic}
                       onChange={(e) => setRelNic(e.target.value)}
                       placeholder="NIC: 19854... / Phone"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none"
+                      className={`w-full rounded-xl px-3 py-2 text-xs outline-none transition-all ${
+                        relNicCheck.hasActiveLoan 
+                          ? "bg-rose-50/25 border-2 border-rose-500 text-rose-900 focus:border-rose-600 focus:ring-2 focus:ring-rose-500/10 shadow-sm" 
+                          : relNicCheck.isActiveGuarantor 
+                            ? "bg-amber-50/25 border-2 border-amber-500 text-amber-900 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/10 shadow-sm" 
+                            : "bg-slate-50 border border-slate-200 text-slate-800 focus:border-indigo-500"
+                      }`}
                     />
+                    {relNicCheck.hasActiveLoan && (
+                      <p className="text-[9px] font-black text-rose-650 mt-1 uppercase tracking-wider">
+                        ⚠️ {lang === "si" 
+                          ? `දැනට සක්‍රීය ණය මුදලක් පවතී! (අංකය: ${relNicCheck.activeLoanRef})` 
+                          : `Active running loan! (Ref: ${relNicCheck.activeLoanRef})`}
+                      </p>
+                    )}
+                    {relNicCheck.isActiveGuarantor && (
+                      <p className="text-[9px] font-black text-amber-600 mt-1 uppercase tracking-wider">
+                        ⚠️ {lang === "si" 
+                          ? `දැනට ${relNicCheck.guarantorLoanBorrowerName} ගේ ණයකට ඇපකරුවෙකි! (අංකය: ${relNicCheck.guarantorLoanRef})` 
+                          : `Guarantor for ${relNicCheck.guarantorLoanBorrowerName}! (Ref: ${relNicCheck.guarantorLoanRef})`}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="text-[9px] font-bold text-slate-500 uppercase block mb-1">{lang === "si" ? "ඥාතියාගේ ලිපිනය" : "Address"}</label>
@@ -891,6 +1400,24 @@ export default function FieldOfficerHub({
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none"
                     />
                   </div>
+                </div>
+
+                {/* Relative Image Uploads Row */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  <ImageUploadField
+                    label={lang === "si" ? "ඥාතියාගේ හැඳුනුම්පත් ඉදිරිපස" : "Sponsor NIC Front"}
+                    value={relIdFront}
+                    onChange={(b64) => setRelIdFront(b64)}
+                    onClear={() => setRelIdFront("")}
+                    lang={lang}
+                  />
+                  <ImageUploadField
+                    label={lang === "si" ? "ඥාතියාගේ හැඳුනුම්පත් පසුපස" : "Sponsor NIC Back"}
+                    value={relIdBack}
+                    onChange={(b64) => setRelIdBack(b64)}
+                    onClear={() => setRelIdBack("")}
+                    lang={lang}
+                  />
                 </div>
               </div>
 
@@ -915,8 +1442,28 @@ export default function FieldOfficerHub({
                       value={g1Nic}
                       onChange={(e) => setG1Nic(e.target.value)}
                       placeholder="Guarantor NIC"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none"
+                      className={`w-full rounded-xl px-3 py-2 text-xs outline-none transition-all ${
+                        g1NicCheck.hasActiveLoan 
+                          ? "bg-rose-50/25 border-2 border-rose-500 text-rose-900 focus:border-rose-600 focus:ring-2 focus:ring-rose-500/10 shadow-sm" 
+                          : g1NicCheck.isActiveGuarantor 
+                            ? "bg-amber-50/25 border-2 border-amber-500 text-amber-900 focus:border-amber-600 focus:ring-2 focus:ring-amber-500/10 shadow-sm" 
+                            : "bg-slate-50 border border-slate-200 text-slate-800 focus:border-indigo-500"
+                      }`}
                     />
+                    {g1NicCheck.hasActiveLoan && (
+                      <p className="text-[9px] font-black text-rose-650 mt-1 uppercase tracking-wider">
+                        ⚠️ {lang === "si" 
+                          ? `දැනට සක්‍රීය ණය මුදලක් පවතී! (අංකය: ${g1NicCheck.activeLoanRef})` 
+                          : `Active running loan! (Ref: ${g1NicCheck.activeLoanRef})`}
+                      </p>
+                    )}
+                    {g1NicCheck.isActiveGuarantor && (
+                      <p className="text-[9px] font-black text-amber-600 mt-1 uppercase tracking-wider">
+                        ⚠️ {lang === "si" 
+                          ? `දැනට ${g1NicCheck.guarantorLoanBorrowerName} ගේ ණයකට ඇපකරුවෙකි! (අංකය: ${g1NicCheck.guarantorLoanRef})` 
+                          : `Guarantor for ${g1NicCheck.guarantorLoanBorrowerName}! (Ref: ${g1NicCheck.guarantorLoanRef})`}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="text-[9px] font-bold text-slate-500 uppercase block mb-1">{lang === "si" ? "දුරකථන අංකය" : "Guarantor Phone"}</label>
@@ -938,6 +1485,24 @@ export default function FieldOfficerHub({
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none"
                     />
                   </div>
+                </div>
+
+                {/* Guarantor Image Uploads Row */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  <ImageUploadField
+                    label={lang === "si" ? "ඇපකරුගේ හැඳුනුම්පත් ඉදිරිපස" : "Guarantor NIC Front"}
+                    value={g1IdFront}
+                    onChange={(b64) => setG1IdFront(b64)}
+                    onClear={() => setG1IdFront("")}
+                    lang={lang}
+                  />
+                  <ImageUploadField
+                    label={lang === "si" ? "ඇපකරුගේ හැඳුනුම්පත් පසුපස" : "Guarantor NIC Back"}
+                    value={g1IdBack}
+                    onChange={(b64) => setG1IdBack(b64)}
+                    onClear={() => setG1IdBack("")}
+                    lang={lang}
+                  />
                 </div>
               </div>
 
@@ -1197,37 +1762,76 @@ export default function FieldOfficerHub({
                 </p>
               </div>
 
-              <form onSubmit={handlePostExpense} className="p-4 bg-amber-50/50 border border-amber-100 rounded-2xl grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                <div className="md:col-span-3">
-                  <label className="text-[9px] font-bold text-slate-500 block mb-1">
-                    {lang === "si" ? "වියදම් මුදල (LKR) *" : "Expense amount (LKR) *"}
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    value={expAmount}
-                    onChange={(e) => setExpAmount(e.target.value)}
-                    placeholder="e.g. 500"
-                    className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 font-bold font-mono outline-none"
-                  />
+              <form onSubmit={handlePostExpense} className="p-5 bg-amber-50/50 border border-amber-100 rounded-3xl space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-end">
+                  <div className="md:col-span-3">
+                    <label className="text-[9px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
+                      {lang === "si" ? "වියදම් මුදල (LKR) *" : "Expense amount (LKR) *"}
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      value={expAmount}
+                      onChange={(e) => setExpAmount(e.target.value)}
+                      placeholder="e.g. 500"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-bold font-mono outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="md:col-span-5">
+                    <label className="text-[9px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
+                      {lang === "si" ? "වියදමට අදාළ විස්තරය *" : "Expense purpose / Description *"}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={expDesc}
+                      onChange={(e) => setExpDesc(e.target.value)}
+                      placeholder="e.g. Fuel for motorcycle"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="md:col-span-4">
+                    <label className="text-[9px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
+                      {lang === "si" ? "බිල්පතෙහි රූපය (Bill image)" : "Bill / Receipt Image"}
+                    </label>
+                    {expBillImage ? (
+                      <div className="flex items-center gap-2 p-1.5 bg-white border border-slate-200 rounded-xl">
+                        <img src={expBillImage} className="w-8 h-8 object-cover rounded-lg border border-slate-100" />
+                        <span className="text-[10px] text-emerald-600 font-extrabold truncate flex-1">
+                          {lang === "si" ? "බිල්පත ඇතුළු කළා" : "Image loaded"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setExpBillImage("")}
+                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-md text-[9px] font-bold cursor-pointer transition"
+                        >
+                          {lang === "si" ? "මකන්න" : "Clear"}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleBillFileChange}
+                          className="hidden"
+                          id="bill-image-input"
+                        />
+                        <label
+                          htmlFor="bill-image-input"
+                          className="w-full bg-white border border-dashed border-slate-300 hover:border-amber-500 rounded-xl px-3 py-2 text-xs text-slate-500 hover:text-amber-600 transition flex items-center justify-center gap-1.5 cursor-pointer font-bold"
+                        >
+                          <Camera className="w-4 h-4 text-slate-400" />
+                          <span>{lang === "si" ? "බිල අප්ලෝඩ් කරන්න" : "Upload physical bill"}</span>
+                        </label>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="md:col-span-7">
-                  <label className="text-[9px] font-bold text-slate-500 block mb-1">
-                    {lang === "si" ? "වියදමට අදාළ විස්තරය *" : "Expense purpose / Description *"}
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={expDesc}
-                    onChange={(e) => setExpDesc(e.target.value)}
-                    placeholder="e.g. Fuel for motorcycle or service lunches in the field"
-                    className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 outline-none"
-                  />
-                </div>
-                <div className="md:col-span-2">
+                <div className="flex justify-end pt-2">
                   <button
                     type="submit"
-                    className="w-full bg-amber-600 hover:bg-amber-550 text-white font-black py-1.8 rounded-xl text-xs cursor-pointer active:scale-95 transition-all outline-none"
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-black px-6 py-2 rounded-xl text-xs cursor-pointer active:scale-95 transition-all outline-none uppercase tracking-wider"
                   >
                     {lang === "si" ? "වියදම එක්කරන්න" : "Post Expense"}
                   </button>
@@ -1428,9 +2032,18 @@ export default function FieldOfficerHub({
           
           const repRems = officer.remittances.filter(r => r.status !== 'REJECTED' && r.date === reportDate);
           const rV = repRems.reduce((sum, r) => sum + r.amount, 0);
+
+          const repDisbursed = disbursedLoansByRep.filter(l => l.officeUse.loanDate === reportDate);
+          const dV = repDisbursed.reduce((sum, l) => sum + l.officeUse.approvedAmount, 0);
+
+          const repTransfersIn = fieldOfficers.flatMap(o => o.repTransfers || []).filter(t => t.toOfficerId === officer.id && t.status === 'ACCEPTED' && t.date === reportDate);
+          const tInV = repTransfersIn.reduce((sum, t) => sum + t.amount, 0);
+
+          const repTransfersOut = (officer.repTransfers || []).filter(t => t.status !== 'REJECTED' && t.date === reportDate);
+          const tOutV = repTransfersOut.reduce((sum, t) => sum + t.amount, 0);
           
-          const eodInflow = fV + cV + bV + oV;
-          const eodOutflow = eV + rV;
+          const eodInflow = fV + cV + bV + oV + tInV;
+          const eodOutflow = eV + rV + dV + tOutV;
           const eodBalanceValue = eodInflow - eodOutflow;
 
           return (
@@ -1512,6 +2125,12 @@ export default function FieldOfficerHub({
                           <span className="font-bold font-mono text-emerald-600">+{formatLKR(oV)}</span>
                         </div>
                       )}
+                      {tInV > 0 && (
+                        <div className="flex justify-between">
+                          <span>- {lang === "si" ? "ලැබුණු මාරුකිරීම්" : "Transfers Received"}</span>
+                          <span className="font-bold font-mono text-emerald-600">+{formatLKR(tInV)}</span>
+                        </div>
+                      )}
                     </div>
                     <div className="border-t border-slate-150 pt-1 flex justify-between font-bold text-xs">
                       <span>{lang === "si" ? "මුළු ලැබීම් එකතුව" : "Total Cash Inflow"}</span>
@@ -1531,8 +2150,20 @@ export default function FieldOfficerHub({
                       </div>
                       <div className="flex justify-between">
                         <span>- {lang === "si" ? "කාර්යාලයට භාරදුන් මුදල්" : "Remitted Cash"}</span>
-                        <span className="font-bold font-mono text-rose-500">-{formatLKR(rV)}</span>
+                        <span className="font-bold font-mono text-rose-500 font-bold">-{formatLKR(rV)}</span>
                       </div>
+                      {dV > 0 && (
+                        <div className="flex justify-between">
+                          <span>- {lang === "si" ? "නිකුත් කළ ණය" : "Disbursed Loans"}</span>
+                          <span className="font-bold font-mono text-rose-500">-{formatLKR(dV)}</span>
+                        </div>
+                      )}
+                      {tOutV > 0 && (
+                        <div className="flex justify-between">
+                          <span>- {lang === "si" ? "යවන ලද මාරුකිරීම්" : "Transfers Sent"}</span>
+                          <span className="font-bold font-mono text-rose-500">-{formatLKR(tOutV)}</span>
+                        </div>
+                      )}
                     </div>
                     <div className="border-t border-slate-150 pt-1 flex justify-between font-bold text-xs">
                       <span>{lang === "si" ? "මුළු වියදම් එකතුව" : "Total Outflow"}</span>

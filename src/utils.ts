@@ -348,3 +348,53 @@ export function getLoanStats(loans: Loan[]): SystemStats {
     outstandingBalance: totalToPay - totalPaid,
   };
 }
+
+export interface NicStatus {
+  hasActiveLoan: boolean;
+  isActiveGuarantor: boolean;
+  activeLoanRef?: string;
+  guarantorLoanRef?: string;
+  borrowerName?: string;
+  guarantorLoanBorrowerName?: string;
+}
+
+export function checkNicStatus(nic: string, loans: Loan[]): NicStatus {
+  const result: NicStatus = {
+    hasActiveLoan: false,
+    isActiveGuarantor: false
+  };
+
+  if (!nic || !nic.trim() || !loans || loans.length === 0) return result;
+
+  const searchNic = nic.trim().toUpperCase();
+
+  for (const loan of loans) {
+    // Only check against active or overdue loans (currently running loans)
+    if (loan.status === "ACTIVE" || loan.status === "OVERDUE") {
+      // 1. Check if they are the primary applicant
+      const appNic = loan.applicant?.nic?.trim().toUpperCase();
+      if (appNic && appNic === searchNic) {
+        result.hasActiveLoan = true;
+        result.activeLoanRef = loan.officeUse?.applicationNumber || loan.id;
+        result.borrowerName = loan.applicant?.fullName;
+      }
+
+      // 2. Check if they are a guarantor or relative
+      const g1Nic = loan.guarantor1?.nic?.trim().toUpperCase();
+      const g2Nic = loan.guarantor2?.nic?.trim().toUpperCase();
+      const relNic = loan.relative?.nic?.trim().toUpperCase();
+
+      if (
+        (g1Nic && g1Nic === searchNic) ||
+        (g2Nic && g2Nic === searchNic) ||
+        (relNic && relNic === searchNic)
+      ) {
+        result.isActiveGuarantor = true;
+        result.guarantorLoanRef = loan.officeUse?.applicationNumber || loan.id;
+        result.guarantorLoanBorrowerName = loan.applicant?.fullName;
+      }
+    }
+  }
+
+  return result;
+}

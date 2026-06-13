@@ -16,7 +16,8 @@ import {
   CheckCircle,
   AlertTriangle,
   ArrowUpDown,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Clock
 } from "lucide-react";
 import { Loan } from "../types";
 import { formatLKR } from "../utils";
@@ -73,6 +74,12 @@ export default function LoanList({ loans, onSelectLoan, onEditLoan, onDeleteLoan
 
   const getStatusBadge = (status: Loan["status"]) => {
     switch (status) {
+      case "PENDING":
+        return (
+          <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full text-xs font-bold border border-amber-100 animate-pulse-soft">
+            <Clock className="w-3.5 h-3.5" /> {lang === "si" ? "අනුමැතිය අපේක්ෂිත" : "Pending Approval"}
+          </span>
+        );
       case "ACTIVE":
         return (
           <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-650 px-2.5 py-1 rounded-full text-xs font-bold border border-blue-100">
@@ -140,6 +147,7 @@ export default function LoanList({ loans, onSelectLoan, onEditLoan, onDeleteLoan
             className="w-full pl-10 pr-8 py-2.5 text-xs font-bold border border-slate-200 hover:border-slate-350 bg-white text-slate-755 rounded-xl focus:outline-hidden focus:focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600/20 transition cursor-pointer appearance-none"
           >
             <option value="ALL">{t.filterAll}</option>
+            <option value="PENDING">{lang === "si" ? "අනුමැතිය අපේක්ෂිත" : "Pending Approval"}</option>
             <option value="ACTIVE">{t.filterActive}</option>
             <option value="OVERDUE">{t.filterOverdue}</option>
             <option value="COMPLETED">{t.filterCompleted}</option>

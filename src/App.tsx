@@ -70,7 +70,33 @@ export default function App() {
 
   const [fieldOfficers, setFieldOfficers] = useState<FieldOfficer[]>(() => {
     const saved = localStorage.getItem("seth-capital-field-officers");
-    return saved ? JSON.parse(saved) : [];
+    let list: FieldOfficer[] = saved ? JSON.parse(saved) : [];
+    
+    // Ensure admin user with email addigitalonlinework@gmail.com and PIN 1234 is pre-seeded
+    const hasAdmin = list.some(o => o.email?.toLowerCase().trim() === 'addigitalonlinework@gmail.com');
+    if (!hasAdmin) {
+      list.push({
+        id: "admin-root",
+        name: "Admin Office Main",
+        nic: "SEC-ADMIN",
+        phone: "0770000000",
+        address: "Seth Capital Headquarters",
+        employeeId: "EM-ADMIN",
+        email: "addigitalonlinework@gmail.com",
+        vehicleNumber: "WP-CAS-1234",
+        joinedDate: "2026-01-01",
+        targetCollection: 1000000,
+        status: "ACTIVE",
+        position: "ADMIN",
+        canApproveLoans: true,
+        pin: "1234",
+        expenses: [],
+        allowances: [],
+        remittances: [],
+        createdAt: new Date().toISOString()
+      });
+    }
+    return list;
   });
 
   const [investors, setInvestors] = useState<Investor[]>(() => {
@@ -89,6 +115,10 @@ export default function App() {
   const [selectedOfficerId, setSelectedOfficerId] = useState<string>(() => {
     return localStorage.getItem("seth-capital-selected-officer-id") || "";
   });
+
+  // Find current logged user object and determine their approval authority permission
+  const activeStaffOfficer = fieldOfficers.find((o) => o.id === selectedOfficerId) || null;
+  const hasApprovalAuthority = !activeStaffOfficer || (activeStaffOfficer.canApproveLoans !== false);
 
   // User custom uploaded brand logo state
   const [customLogo, setCustomLogo] = useState<string | null>(() => {
@@ -154,18 +184,12 @@ export default function App() {
   const [supabaseConnected, setSupabaseConnected] = useState<boolean | null>(null);
   const [dbLoading, setDbLoading] = useState(false);
 
-  // Reusable multi-table auto-fetch system from Supabase cloud
-  const fetchAllFromSupabase = async (silent = false) => {
+  // Auto-fetch from Supabase on startup if configured
+  useEffect(() => {
     const config = getSupabaseConfig();
-    if (!config) {
-      setSupabaseConnected(false);
-      return;
-    }
-
-    if (!silent) setDbLoading(true);
-
-    try {
-      const [dbLoans, dbOfficers, dbInvestors] = await Promise.all([
+    if (config) {
+      setDbLoading(true);
+      Promise.all([
         getLoansFromSupabase().catch((err) => {
           console.warn("Could not auto-fetch loans (table might not exist yet):", err);
           return null;
@@ -178,38 +202,31 @@ export default function App() {
           console.warn("Could not auto-fetch investors (table might not exist yet):", err);
           return null;
         })
-      ]);
-
-      if (dbLoans && dbLoans.length > 0) {
-        setLoans(dbLoans);
-      }
-      if (dbOfficers && dbOfficers.length > 0) {
-        setFieldOfficers(dbOfficers);
-      }
-      if (dbInvestors && dbInvestors.length > 0) {
-        setInvestors(dbInvestors);
-      }
-      setSupabaseConnected(true);
-      console.log("Successfully fetched dataset updates from live Supabase DB.");
-    } catch (err) {
-      console.error("General live table fetch failed:", err);
+      ]).then(([dbLoans, dbOfficers, dbInvestors]) => {
+        if (dbLoans && dbLoans.length > 0) {
+          setLoans(dbLoans);
+        }
+        if (dbOfficers && dbOfficers.length > 0) {
+          setFieldOfficers(dbOfficers);
+        }
+        if (dbInvestors && dbInvestors.length > 0) {
+          setInvestors(dbInvestors);
+        }
+        setSupabaseConnected(true);
+        console.log("Successfully auto-fetched active datasets from Supabase live database.", {
+          loans: dbLoans?.length || 0,
+          officers: dbOfficers?.length || 0,
+          investors: dbInvestors?.length || 0
+        });
+      }).catch((err) => {
+        console.error("General startup fetch failed:", err);
+        setSupabaseConnected(false);
+      }).finally(() => {
+        setDbLoading(false);
+      });
+    } else {
       setSupabaseConnected(false);
-    } finally {
-      if (!silent) setDbLoading(false);
     }
-  };
-
-  // Auto-fetch from Supabase on startup if configured
-  useEffect(() => {
-    fetchAllFromSupabase();
-  }, []);
-
-  // Set up periodic background updater (pull additions/updates from db every 30 seconds silently)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchAllFromSupabase(true);
-    }, 30000);
-    return () => clearInterval(interval);
   }, []);
 
   // Sync language selection
@@ -229,7 +246,11 @@ export default function App() {
     }
 
     // Background push to Supabase (fails gracefully if connection/table is not ready)
-    sendLoanToSupabase(savedLoan).catch((err) => {
+    sendLoanToSupabase(savedLoan).then((uploadedLoan) => {
+      if (uploadedLoan) {
+        setLoans((current) => current.map((l) => (l.id === uploadedLoan.id ? uploadedLoan : l)));
+      }
+    }).catch((err) => {
       console.warn("Auto-sync background save to Supabase skipped / failed:", err);
     });
 
@@ -321,6 +342,10 @@ export default function App() {
 
   // Handler for deleting loan record completely
   const handleDeleteLoan = (loanId: string) => {
+    if (!hasApprovalAuthority) {
+      alert(lang === "si" ? "ණය ගිණුම් මකා දැමීමට ඔබට අවසර නැත." : "You do not have permission to delete loan ledgers.");
+      return;
+    }
     setLoans(loans.filter((l) => l.id !== loanId));
     
     // Background delete from Supabase
@@ -505,7 +530,11 @@ export default function App() {
 
   const handleAddLoan = (newLoan: Loan) => {
     setLoans([newLoan, ...loans]);
-    sendLoanToSupabase(newLoan).catch((err) => {
+    sendLoanToSupabase(newLoan).then((uploadedLoan) => {
+      if (uploadedLoan) {
+        setLoans((current) => current.map((l) => (l.id === uploadedLoan.id ? uploadedLoan : l)));
+      }
+    }).catch((err) => {
       console.warn("Auto-sync background save to Supabase skipped:", err);
     });
   };
@@ -548,6 +577,7 @@ export default function App() {
           onAddRepTransfer={handleAddRepTransfer}
           onUpdateRepTransfer={handleUpdateRepTransfer}
           onAddLoan={handleAddLoan}
+          onUpdateLoan={handleSaveLoan}
           onLogout={() => {
             setCurrentUserRole("GUEST");
             setSelectedOfficerId("");
@@ -581,6 +611,7 @@ export default function App() {
             initialLoan={editingLoan || undefined}
             fieldOfficers={fieldOfficers}
             lang={lang}
+            loans={loans}
           />
         );
       case "LOAN_LIST":
@@ -624,6 +655,8 @@ export default function App() {
             onChangeStatus={handleChangeStatus}
             lang={lang}
             officers={fieldOfficers}
+            hasApprovalAuthority={hasApprovalAuthority}
+            loans={loans}
           />
         );
       case "FIELD_OFFICERS":
@@ -754,7 +787,12 @@ export default function App() {
     return (
       <SystemLogin 
         fieldOfficers={fieldOfficers}
-        onAdminLogin={(pin) => {
+        onAdminLogin={(officerIdOrPin) => {
+          if (officerIdOrPin !== '1234') {
+            setSelectedOfficerId(officerIdOrPin);
+          } else {
+            setSelectedOfficerId("");
+          }
           setCurrentUserRole('ADMIN');
           setActiveTab('DASHBOARD');
         }}
@@ -856,28 +894,20 @@ export default function App() {
               </div>
 
               {dbLoading ? (
-                <div className="flex items-center gap-1 bg-indigo-950 text-indigo-300 px-2.5 py-1 rounded-full text-[9px] uppercase font-black animate-pulse select-none">
+                <div className="flex items-center gap-1 bg-indigo-950 text-indigo-300 px-2.5 py-1 rounded-full text-[9px] uppercase font-black animate-pulse">
                   <RefreshCw className="w-3 h-3 text-indigo-400 animate-spin" />
                   {lang === "si" ? "සමමුහුර්ත වෙමින්..." : "Syncing..."}
                 </div>
               ) : supabaseConnected ? (
-                <button 
-                  onClick={() => fetchAllFromSupabase(false)}
-                  title={lang === "si" ? "ඩේටාබේස් වෙතින් දත්ත අලුත් කරන්න" : "Reload data from Supabase live database"}
-                  className="flex items-center gap-1.5 bg-emerald-950 text-emerald-400 hover:bg-emerald-900 border border-emerald-800/50 px-2.5 py-1 rounded-full text-[9px] uppercase font-black cursor-pointer active:scale-95 transition-all"
-                >
-                  <RefreshCw className="w-3 h-3 hover:rotate-180 transition-transform duration-300" />
-                  {lang === "si" ? "ලයිව් (අලුත් කරන්න)" : "Live (Refresh)"}
-                </button>
+                <div className="flex items-center gap-1 bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-full text-[9px] uppercase font-black">
+                  <CheckCircle2 className="w-3 h-3" />
+                  {lang === "si" ? "සමමුහුර්තයි" : "Sys Active"}
+                </div>
               ) : (
-                <button 
-                  onClick={() => setActiveTab("BACKUP_RESTORE")}
-                  title={lang === "si" ? "සම්බන්ධතා සැකසුම් වෙත යන්න" : "Go to Supabase cloud connection configurations"}
-                  className="flex items-center gap-1.5 bg-rose-950 text-rose-400 hover:bg-rose-900 border border-rose-800/50 px-2.5 py-1 rounded-full text-[9px] uppercase font-black cursor-pointer active:scale-95 transition-all"
-                >
-                  <AlertCircle className="w-3 h-3 animate-bounce" />
-                   {lang === "si" ? "නොබැඳි (සකසන්න)" : "Offline (Setup)"}
-                </button>
+                <div className="flex items-center gap-1 bg-rose-950 text-rose-400 px-2.5 py-1 rounded-full text-[9px] uppercase font-black cursor-pointer hover:bg-rose-900 transition-colors">
+                  <AlertCircle className="w-3 h-3" />
+                   {lang === "si" ? "සම්බන්ධය බිඳී ඇත" : "Offline DB"}
+                </div>
               )}
             </div>
           </div>

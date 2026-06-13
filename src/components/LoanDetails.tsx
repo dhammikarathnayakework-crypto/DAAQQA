@@ -28,7 +28,7 @@ import {
   NotebookTabs
 } from "lucide-react";
 import { Loan, PaymentCollection, FieldOfficer } from "../types";
-import { formatLKR, generateId } from "../utils";
+import { formatLKR, generateId, checkNicStatus } from "../utils";
 import { translations, Language } from "../translations";
 
 interface LoanDetailsProps {
@@ -39,6 +39,8 @@ interface LoanDetailsProps {
   onChangeStatus: (loanId: string, status: Loan["status"]) => void;
   lang: Language;
   officers?: FieldOfficer[];
+  hasApprovalAuthority?: boolean;
+  loans?: Loan[];
 }
 
 export default function LoanDetails({ 
@@ -48,7 +50,9 @@ export default function LoanDetails({
   onDeleteCollection, 
   onChangeStatus,
   lang,
-  officers = []
+  officers = [],
+  hasApprovalAuthority = true,
+  loans = []
 }: LoanDetailsProps) {
   const t = translations[lang];
 
@@ -163,6 +167,14 @@ export default function LoanDetails({
     window.print();
   };
 
+  const otherLoans = loans.filter((l) => l.id !== loan.id);
+  const applicantStatus = checkNicStatus(loan.applicant.nic, otherLoans);
+  const borderHighlightClass = applicantStatus.hasActiveLoan 
+    ? "border-rose-450 border-2 shadow-rose-500/10 ring-4 ring-rose-100/50 bg-rose-50/5" 
+    : applicantStatus.isActiveGuarantor 
+      ? "border-amber-450 border-2 shadow-amber-500/10 ring-4 ring-amber-100/50 bg-amber-50/5" 
+      : "border-slate-100";
+
   return (
     <div className="space-y-8 select-none">
       
@@ -182,13 +194,20 @@ export default function LoanDetails({
             <span>{t.statusLabel}:</span>
             <select
               value={loan.status}
+              disabled={!hasApprovalAuthority}
               onChange={(e) => onChangeStatus(loan.id, e.target.value as Loan["status"])}
-              className="font-bold text-slate-850 bg-transparent focus:outline-hidden cursor-pointer"
+              className={`font-bold text-slate-850 bg-transparent focus:outline-hidden cursor-pointer ${!hasApprovalAuthority ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
+              <option value="PENDING">{lang === 'si' ? 'අනුමැතිය අපේක්ෂිත (Pending)' : 'Pending Approval'}</option>
               <option value="ACTIVE">{t.active}</option>
               <option value="COMPLETED">{t.completed}</option>
               <option value="OVERDUE">{t.overdue}</option>
             </select>
+            {!hasApprovalAuthority && (
+              <span className="text-[9px] text-rose-500 font-extrabold bg-rose-50 px-2 py-0.5 rounded border border-rose-100 ml-1">
+                {lang === 'si' ? 'අනුමැතිය සඳහා අවසර නැත' : 'No Approval Permission'}
+              </span>
+            )}
           </div>
 
           <button
@@ -549,7 +568,7 @@ export default function LoanDetails({
       </div>
 
       {/* Screen container: MAIN STATEMENT SECTION (Hides on specific media contract prints but standard for normal views) */}
-      <div className="bg-white border rounded-3xl p-6 md:p-8 shadow-xs space-y-6 screen-container no-print">
+      <div className={`bg-white rounded-3xl p-6 md:p-8 shadow-xs space-y-6 screen-container no-print ${borderHighlightClass}`}>
         
         {/* Header containing brand */}
         <div className="flex flex-col sm:flex-row items-center justify-between border-b border-dashed pb-5 text-center sm:text-left gap-4">
@@ -568,6 +587,75 @@ export default function LoanDetails({
           </div>
         </div>
 
+        {/* Credit Risk Warnings Block */}
+        {(() => {
+          const g1Status = loan.guarantor1?.nic ? checkNicStatus(loan.guarantor1.nic, otherLoans) : null;
+          const g2Status = loan.guarantor2?.nic ? checkNicStatus(loan.guarantor2.nic, otherLoans) : null;
+          const hasRisk = applicantStatus.hasActiveLoan || applicantStatus.isActiveGuarantor ||
+                          g1Status?.hasActiveLoan || g1Status?.isActiveGuarantor ||
+                          g2Status?.hasActiveLoan || g2Status?.isActiveGuarantor;
+
+          if (!hasRisk) return null;
+
+          return (
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-205/65 space-y-3 no-print">
+              <span className="text-[9.5px] font-black uppercase text-rose-500 tracking-wider block">
+                {lang === "si" ? "අනුමැතිය සඳහා පද්ධති අනතුරු ඇඟවීම් (Double-funding Risk Warnings)" : "Underwriting System Warnings"}
+              </span>
+
+              {/* Applicant is Borrower on active loan */}
+              {applicantStatus.hasActiveLoan && (
+                <div className="flex items-start gap-2.5 p-3 rounded-xl bg-red-100/50 border-l-4 border-red-500 text-xs">
+                  <div className="w-2 h-2 rounded-full bg-red-650 mt-1 shrink-0 animate-pulse" />
+                  <div>
+                    <h5 className="font-extrabold text-red-900">
+                      {lang === "si" ? "අයදුම්කරුට දැනටමත් සක්‍රීය ණය මුදලක් පවතී!" : "Applicant currently has a running active loan!"}
+                    </h5>
+                    <p className="text-red-750 mt-0.5">
+                      {lang === "si" 
+                        ? `හැඳුනුම්පත් අංකය (${loan.applicant.nic}) හිමිකරුට මෙම පද්ධතියේ දැනටමත් සක්‍රීය ${applicantStatus.activeLoanRef} ණය ගිණුමක් ඇත.`
+                        : `Applicant with identification ${loan.applicant.nic} is applicant on active loan ${applicantStatus.activeLoanRef}.`}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Applicant is Guarantor on active loan */}
+              {applicantStatus.isActiveGuarantor && (
+                <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-100/50 border-l-4 border-amber-500 text-xs">
+                  <div className="w-2 h-2 rounded-full bg-amber-600 mt-1 shrink-0" />
+                  <div>
+                    <h5 className="font-extrabold text-amber-900">
+                      {lang === "si" ? "අයදුම්කරු දැනට වෙනත් සක්‍රීය ණයක ඇපකරුවෙකි!" : "Applicant is currently guarantor on active loan!"}
+                    </h5>
+                    <p className="text-amber-750 mt-0.5">
+                      {lang === "si" 
+                        ? `මෙම අයදුම්කරු (NIC: ${loan.applicant.nic}) දැනට ${applicantStatus.guarantorLoanBorrowerName} ගේ ${applicantStatus.guarantorLoanRef} ණය ගිණුමට ඇපකරුවෙකි.`
+                        : `Applicant is guarantor on loan ${applicantStatus.guarantorLoanRef} for borrower ${applicantStatus.guarantorLoanBorrowerName}.`}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* G1 & G2 warnings */}
+              {g1Status?.hasActiveLoan && (
+                <p className="text-[10px] font-bold text-red-600 bg-red-50/50 p-2 rounded-lg border border-red-100">
+                  ⚠️ {lang === "si" 
+                    ? `පළමු ඇපකරු ${loan.guarantor1?.name} ට දැනට පවතින සක්‍රීය ණයක් ඇත! (${g1Status.activeLoanRef})` 
+                    : `Guarantor 1 (${loan.guarantor1?.name}) has an active loan! (${g1Status.activeLoanRef})`}
+                </p>
+              )}
+              {g2Status?.hasActiveLoan && (
+                <p className="text-[10px] font-bold text-red-600 bg-red-50/50 p-2 rounded-lg border border-red-100">
+                  ⚠️ {lang === "si" 
+                    ? `දෙවන ඇපකරු ${loan.guarantor2?.name} ට දැනට පවතින සක්‍රීය ණයක් ඇත! (${g2Status.activeLoanRef})` 
+                    : `Guarantor 2 (${loan.guarantor2?.name}) has an active loan! (${g2Status.activeLoanRef})`}
+                </p>
+              )}
+            </div>
+          );
+        })()}
+
         {/* 1. Borrower Profiling Bento */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 border-b border-slate-50 pb-8">
           {/* Main Borrower profile */}
@@ -585,6 +673,68 @@ export default function LoanDetails({
                 <span className="font-bold text-slate-400">{t.address}:</span>
                 <span className="font-bold text-slate-700 leading-relaxed col-span-2 mt-1 bg-slate-50 p-2.5 rounded-xl border">{loan.applicant.address}</span>
               </div>
+
+              {/* Borrower Documents Previews */}
+              {(loan.applicant.idFront || loan.applicant.idBack || loan.applicant.signedDoc) && (
+                <div className="mt-4 border-t border-slate-100 pt-4 space-y-2 no-print">
+                  <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase block">
+                    {lang === "si" ? "අමුණා ඇති ලිපිලේඛන" : "Attached Borrower Documents"}
+                  </span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {loan.applicant.idFront && (
+                      <div 
+                        className="border rounded-xl overflow-hidden bg-slate-100 relative group cursor-pointer aspect-video" 
+                        onClick={() => {
+                          const w = window.open();
+                          w?.document.write(`<html><head><title>Borrower ID Front</title></head><body style="margin:0; background:#0f172a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${loan.applicant.idFront}" style="max-width:90%; max-height:90vh; border-radius:12px; shadow: 2xl;" /></body></html>`);
+                        }}
+                      >
+                        <img src={loan.applicant.idFront} alt="ID Front" className="w-full h-full object-cover group-hover:scale-105 transition" referrerPolicy="no-referrer" />
+                        <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[9px] font-sans font-bold">
+                          {lang === "si" ? "විවෘත කරන්න" : "View"}
+                        </div>
+                        <div className="absolute bottom-0 inset-x-0 bg-slate-950/50 backdrop-blur-xs py-0.5 text-center text-[8px] text-white font-sans font-black uppercase tracking-wider">
+                          {lang === "si" ? "ID ඉදිරිපස" : "ID Front"}
+                        </div>
+                      </div>
+                    )}
+                    {loan.applicant.idBack && (
+                      <div 
+                        className="border rounded-xl overflow-hidden bg-slate-100 relative group cursor-pointer aspect-video" 
+                        onClick={() => {
+                          const w = window.open();
+                          w?.document.write(`<html><head><title>Borrower ID Back</title></head><body style="margin:0; background:#0f172a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${loan.applicant.idBack}" style="max-width:90%; max-height:90vh; border-radius:12px;" /></body></html>`);
+                        }}
+                      >
+                        <img src={loan.applicant.idBack} alt="ID Back" className="w-full h-full object-cover group-hover:scale-105 transition" referrerPolicy="no-referrer" />
+                        <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[9px] font-sans font-bold">
+                          {lang === "si" ? "විවෘත කරන්න" : "View"}
+                        </div>
+                        <div className="absolute bottom-0 inset-x-0 bg-slate-950/50 backdrop-blur-xs py-0.5 text-center text-[8px] text-white font-sans font-black uppercase tracking-wider">
+                          {lang === "si" ? "ID පසුපස" : "ID Back"}
+                        </div>
+                      </div>
+                    )}
+                    {loan.applicant.signedDoc && (
+                      <div 
+                        className="border rounded-xl overflow-hidden bg-slate-100 relative group cursor-pointer aspect-video" 
+                        onClick={() => {
+                          const w = window.open();
+                          w?.document.write(`<html><head><title>Signed Application</title></head><body style="margin:0; background:#0f172a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${loan.applicant.signedDoc}" style="max-width:90%; max-height:90vh; border-radius:12px;" /></body></html>`);
+                        }}
+                      >
+                        <img src={loan.applicant.signedDoc} alt="Signed Doc" className="w-full h-full object-cover group-hover:scale-105 transition" referrerPolicy="no-referrer" />
+                        <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[9px] font-sans font-bold">
+                          {lang === "si" ? "විවෘත කරන්න" : "View"}
+                        </div>
+                        <div className="absolute bottom-0 inset-x-0 bg-slate-950/50 backdrop-blur-xs py-0.5 text-center text-[8px] text-white font-sans font-black uppercase tracking-wider overflow-hidden text-ellipsis whitespace-nowrap px-1">
+                          {lang === "si" ? "අත්සන් කළ අයදුම්පත" : "Signed Doc"}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -598,18 +748,117 @@ export default function LoanDetails({
                 <div>
                   <p className="font-bold text-slate-450 uppercase text-[9px] mb-1">{t.relative}:</p>
                   <p className="text-slate-800 font-bold font-sans">{loan.relative.name} ({loan.relative.relationship}) - <span className="font-mono text-[10px] text-slate-500">{loan.relative.phone}</span></p>
+                  
+                  {/* Relative ID Photos */}
+                  {(loan.relative.idFront || loan.relative.idBack) && (
+                    <div className="mt-2 flex items-center gap-2 no-print">
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">{lang === "si" ? "හැඳුනුම්පත් ඡායාරූප (ඥාති):" : "ID Documents:"}</span>
+                      <div className="flex gap-2">
+                        {loan.relative.idFront && (
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const w = window.open();
+                              w?.document.write(`<html><head><title>Relative ID Front</title></head><body style="margin:0; background:#0f172a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${loan.relative.idFront}" style="max-width:90%; max-height:90vh; border-radius:12px; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);" /></body></html>`);
+                            }}
+                            className="px-2 py-0.5 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-indigo-750 font-black rounded-md text-[9px] font-sans transition"
+                          >
+                            {lang === "si" ? "ඉදිරිපස (Front)" : "Front"}
+                          </button>
+                        )}
+                        {loan.relative.idBack && (
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const w = window.open();
+                              w?.document.write(`<html><head><title>Relative ID Back</title></head><body style="margin:0; background:#0f172a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${loan.relative.idBack}" style="max-width:90%; max-height:90vh; border-radius:12px; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);" /></body></html>`);
+                            }}
+                            className="px-2 py-0.5 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-indigo-750 font-black rounded-md text-[9px] font-sans transition"
+                          >
+                            {lang === "si" ? "පසුපස (Back)" : "Back"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               {loan.guarantor1.name && (
                 <div className="border-t pt-2.5">
                   <p className="font-bold text-slate-450 uppercase text-[9px] mb-1">{t.guarantor1}:</p>
                   <p className="text-slate-800 font-bold font-sans">{loan.guarantor1.name} (ID: <span className="font-mono text-[10px] text-slate-500">{loan.guarantor1.nic || "N/A"}</span>) - <span className="font-mono text-[10px] text-slate-500">{loan.guarantor1.phone}</span></p>
+                  
+                  {/* Guarantor 1 ID Photos */}
+                  {(loan.guarantor1.idFront || loan.guarantor1.idBack) && (
+                    <div className="mt-2 flex items-center gap-2 no-print">
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">{lang === "si" ? "හැඳුනුම්පත් ඡායාරූප:" : "ID Documents:"}</span>
+                      <div className="flex gap-2">
+                        {loan.guarantor1.idFront && (
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const w = window.open();
+                              w?.document.write(`<html><head><title>Guarantor 1 ID Front</title></head><body style="margin:0; background:#0f172a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${loan.guarantor1.idFront}" style="max-width:90%; max-height:90vh; border-radius:12px; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);" /></body></html>`);
+                            }}
+                            className="px-2 py-0.5 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-indigo-750 font-black rounded-md text-[9px] font-sans transition"
+                          >
+                            {lang === "si" ? "ඉදිරිපස (Front)" : "Front"}
+                          </button>
+                        )}
+                        {loan.guarantor1.idBack && (
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const w = window.open();
+                              w?.document.write(`<html><head><title>Guarantor 1 ID Back</title></head><body style="margin:0; background:#0f172a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${loan.guarantor1.idBack}" style="max-width:90%; max-height:90vh; border-radius:12px; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);" /></body></html>`);
+                            }}
+                            className="px-2 py-0.5 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-indigo-750 font-black rounded-md text-[9px] font-sans transition"
+                          >
+                            {lang === "si" ? "පසුපස (Back)" : "Back"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               {loan.guarantor2.name && (
                 <div className="border-t pt-2.5">
                   <p className="font-bold text-slate-450 uppercase text-[9px] mb-1">{t.guarantor2}:</p>
                   <p className="text-slate-800 font-bold font-sans">{loan.guarantor2.name} (ID: <span className="font-mono text-[10px] text-slate-500">{loan.guarantor2.nic || "N/A"}</span>) - <span className="font-mono text-[10px] text-slate-500">{loan.guarantor2.phone}</span></p>
+                  
+                  {/* Guarantor 2 ID Photos */}
+                  {(loan.guarantor2.idFront || loan.guarantor2.idBack) && (
+                    <div className="mt-2 flex items-center gap-2 no-print">
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">{lang === "si" ? "හැඳුනුම්පත් ඡායාරූප:" : "ID Documents:"}</span>
+                      <div className="flex gap-2">
+                        {loan.guarantor2.idFront && (
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const w = window.open();
+                              w?.document.write(`<html><head><title>Guarantor 2 ID Front</title></head><body style="margin:0; background:#0f172a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${loan.guarantor2.idFront}" style="max-width:90%; max-height:90vh; border-radius:12px; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);" /></body></html>`);
+                            }}
+                            className="px-2 py-0.5 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-indigo-750 font-black rounded-md text-[9px] font-sans transition"
+                          >
+                            {lang === "si" ? "ඉදිරිපස (Front)" : "Front"}
+                          </button>
+                        )}
+                        {loan.guarantor2.idBack && (
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const w = window.open();
+                              w?.document.write(`<html><head><title>Guarantor 2 ID Back</title></head><body style="margin:0; background:#0f172a; display:flex; align-items:center; justify-content:center; min-height:100vh;"><img src="${loan.guarantor2.idBack}" style="max-width:90%; max-height:90vh; border-radius:12px; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);" /></body></html>`);
+                            }}
+                            className="px-2 py-0.5 bg-indigo-50 border border-indigo-150 hover:bg-indigo-100 text-indigo-750 font-black rounded-md text-[9px] font-sans transition"
+                          >
+                            {lang === "si" ? "පසුපස (Back)" : "Back"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
