@@ -49,10 +49,31 @@ import {
 } from "./lib/supabase";
 import { translations, Language } from "./translations";
 
+const DefaultLogoSvg = () => (
+  <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+    {/* SCL Wing icon above */}
+    <g transform="translate(10, 5)">
+      {/* Left Wing (Blue) */}
+      <path d="M45 28C45 28 49 18 38 12C33 9 27 12 30 18C33 24 45 28 45 28Z" fill="#0256cc" />
+      {/* Right Wing (Gold/Yellow) */}
+      <path d="M46 28C46 28 53 19 62 17C67 16 71 20 66 25C61 30 46 28 46 28Z" fill="#fabc04" />
+    </g>
+    {/* SCL bold text */}
+    <text x="50" y="65" textAnchor="middle" fill="#0256cc" fontSize="24" fontWeight="900" fontFamily="sans-serif" letterSpacing="-1">
+      SCL
+    </text>
+    {/* SETH CAPITAL small text */}
+    <text x="50" y="82" textAnchor="middle" fill="#0256cc" fontSize="8" fontWeight="800" fontFamily="sans-serif" letterSpacing="0.5">
+      SETH CAPITAL
+    </text>
+  </svg>
+);
+
 type ActiveTab = "DASHBOARD" | "NEW_LOAN" | "LOAN_LIST" | "LOAN_DETAILS" | "BACKUP_RESTORE" | "FIELD_OFFICERS" | "INVESTORS";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("DASHBOARD");
+  const [logoError, setLogoError] = useState(false);
   const [loans, setLoans] = useState<Loan[]>(() => {
     const saved = localStorage.getItem("seth-capital-loans");
     if (saved) {
@@ -152,10 +173,10 @@ export default function App() {
     }
   };
 
-  // Load language settings, default to "si" for primary region
+  // Load language settings, default to "en" as requested
   const [lang, setLang] = useState<Language>(() => {
     const savedLang = localStorage.getItem("seth-capital-lang");
-    return (savedLang === "en" || savedLang === "si") ? savedLang : "si";
+    return (savedLang === "en" || savedLang === "si") ? savedLang : "en";
   });
 
   const t = translations[lang];
@@ -593,6 +614,7 @@ export default function App() {
         return (
           <Dashboard 
             loans={loans} 
+            fieldOfficers={fieldOfficers}
             onSelectLoan={(id) => {
               setSelectedLoanId(id);
               setActiveTab("LOAN_DETAILS");
@@ -715,12 +737,24 @@ export default function App() {
 
               <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-2xl bg-slate-50 border border-slate-100">
                 <div className="w-16 h-16 bg-white rounded-2xl border border-slate-200 p-2 flex items-center justify-center overflow-hidden shrink-0 shadow-sm">
-                  <img 
-                    src={customLogo || "/logo.svg"} 
-                    alt="Current Logo" 
-                    className="w-full h-full object-contain" 
-                    referrerPolicy="no-referrer"
-                  />
+                  {customLogo ? (
+                    <img 
+                      src={customLogo} 
+                      alt="Current Logo" 
+                      className="w-full h-full object-contain" 
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : !logoError ? (
+                    <img 
+                      src="/logo.jpeg" 
+                      alt="Current Logo" 
+                      className="w-full h-full object-contain" 
+                      referrerPolicy="no-referrer"
+                      onError={() => setLogoError(true)}
+                    />
+                  ) : (
+                    <DefaultLogoSvg />
+                  )}
                 </div>
                 <div className="flex-1 text-center sm:text-left">
                   <p className="text-xs font-bold text-slate-700">
@@ -816,12 +850,24 @@ export default function App() {
           {/* Logo Brand / Identity of SCL with exact Logo Wings and Blue/Gold Theme */}
           <div className="flex items-center gap-3">
             <div className="relative w-11 h-11 select-none flex items-center justify-center bg-white rounded-xl p-1 shadow-xs border border-slate-100 overflow-hidden group">
-              <img 
-                src={customLogo || "/logo.svg"} 
-                alt="SCL Seth Capital Logo" 
-                className="w-full h-full object-contain" 
-                referrerPolicy="no-referrer" 
-              />
+              {customLogo ? (
+                <img 
+                  src={customLogo} 
+                  alt="SCL Seth Capital Logo" 
+                  className="w-full h-full object-contain" 
+                  referrerPolicy="no-referrer" 
+                />
+              ) : !logoError ? (
+                <img 
+                  src="/logo.jpeg" 
+                  alt="SCL Seth Capital Logo" 
+                  className="w-full h-full object-contain" 
+                  referrerPolicy="no-referrer" 
+                  onError={() => setLogoError(true)}
+                />
+              ) : (
+                <DefaultLogoSvg />
+              )}
               <label className="absolute inset-0 bg-slate-950/85 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-all duration-200">
                 <span className="text-[8px] text-white font-extrabold text-center px-0.5 uppercase tracking-tighter leading-none">
                   {lang === "si" ? "ලෝගෝව" : "Upload"}
@@ -857,6 +903,16 @@ export default function App() {
           {/* Persistent Translation Language Switch Panel & Details */}
           <div className="flex items-center gap-4">
             
+            {/* Language Toggle Button */}
+            <button
+              onClick={handleToggleLang}
+              className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 rounded-xl px-2.5 py-1.5 shadow-sm transition-all duration-150 text-white text-[10px] sm:text-xs font-bold leading-none cursor-pointer"
+              title={lang === "si" ? "Switch language to English (EN)" : "සිංහල භාෂාවට මාරු කරන්න (SI)"}
+            >
+              <Languages className="w-3.5 h-3.5 text-indigo-400 font-semibold" />
+              <span>{lang === "en" ? "සිංහල" : "English"}</span>
+            </button>
+
             {/* Role Header / Logout */}
             <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 shadow-sm">
               <span className="text-[10px] text-slate-400 font-extrabold uppercase pl-1.5 hidden sm:inline">
@@ -882,7 +938,7 @@ export default function App() {
             <div className="hidden lg:flex items-center gap-5 text-[10px] text-slate-400 border-l border-slate-800 pl-5 select-none font-bold font-sans">
               <div className="flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="font-mono">{`dhammikarathnayakework@gmail.com`}</span>
+                <span className="font-mono">{activeStaffOfficer?.email || "addigitalonlinework@gmail.com"}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-indigo-400" />
