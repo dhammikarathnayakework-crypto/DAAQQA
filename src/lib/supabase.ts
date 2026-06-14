@@ -36,7 +36,7 @@ export function getSupabaseConfig(): SupabaseConfig | null {
   // 2. Fallback to Vite environment variables OR direct copy-paste configuration
   // --- DIRECT CONFIGURATION (ලයිව් සර්වර් එකට සම්බන්ධ කිරීමට ඔබගේ Supabase දත්ත පහත ඇතුලත් කරන්න) ---
   const DIRECT_SUPABASE_URL = "https://uondpyfsixaczqbhhzak.supabase.co"; // Example: "https://your-project.supabase.co"
-  const DIRECT_SUPABASE_ANON_KEY = "sb_publishable_JG74NyH1UJ4g6uGKqz0tGQ_mdn7tWi2"; // Example: "eyJhbGciOi..."
+  const DIRECT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvbmRweWZzaXhhY3pxYmhoemFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA2OTAwODEsImV4cCI6MjA5NjI2NjA4MX0.FJdPX9pJEtf0AYlSnHQ5HnQUrSOcWKakRxbzJVKzsSs"; // Example: "eyJhbGciOi..."
   
   const envUrl = DIRECT_SUPABASE_URL || (import.meta as any).env?.VITE_SUPABASE_URL || "";
   const envKey = DIRECT_SUPABASE_ANON_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";

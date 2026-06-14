@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Seth Capital</string>
+    <string name="title_activity_main">Seth Capital</string>
+    <string name="package_name">com.sethcapital.loanmanager</string>
+    <string name="custom_url_scheme">com.sethcapital.loanmanager</string>
+</resources>
