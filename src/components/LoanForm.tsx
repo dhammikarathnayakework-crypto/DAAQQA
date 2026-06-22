@@ -193,7 +193,15 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
 
   // Applicant State
   const [applicant, setApplicant] = useState<ApplicantInfo>(
-    initialLoan?.applicant || { fullName: "", nic: "", address: "", phone: "" }
+    initialLoan?.applicant || { 
+      fullName: "", 
+      nic: "", 
+      address: "", 
+      phone: "",
+      memberNumber: `MEM-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      additionalIncome: 0,
+      earnings: 0
+    }
   );
 
   // Relative State
@@ -223,15 +231,53 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
   // Office Use State
   const [officeUse, setOfficeUse] = useState<OfficeUseInfo>({
     applicationNumber: initialLoan?.officeUse.applicationNumber || `SCL-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+    loanNumber: initialLoan?.officeUse.loanNumber || `L-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
     approvedAmount: initialLoan?.officeUse.approvedAmount || 0,
     interestRate: initialLoan?.officeUse.interestRate || 25, 
     installmentsCount: initialLoan?.officeUse.installmentsCount || 12,
     monthlyInstallment: initialLoan?.officeUse.monthlyInstallment || 0,
     specialNotes: initialLoan?.officeUse.specialNotes || "",
     loanDate: initialLoan?.officeUse.loanDate || new Date().toISOString().slice(0, 10),
+    finalSettlementDate: initialLoan?.officeUse.finalSettlementDate || "",
+    settledDate: initialLoan?.officeUse.settledDate || ""
   });
 
   const [fixedInstallmentAmount, setFixedInstallmentAmount] = useState<number>(500); 
+
+  // Look for any existing customer with the typed NIC for auto-filling
+  const existingCustomerLoan = applicant.nic.trim().length >= 8 
+    ? loans.find(l => l.applicant.nic.toLowerCase().trim() === applicant.nic.toLowerCase().trim() && l.id !== initialLoan?.id)
+    : undefined;
+
+  const handleAutofill = () => {
+    if (existingCustomerLoan) {
+      setApplicant(prev => ({
+        ...prev,
+        fullName: existingCustomerLoan.applicant.fullName,
+        address: existingCustomerLoan.applicant.address,
+        phone: existingCustomerLoan.applicant.phone,
+        memberNumber: existingCustomerLoan.applicant.memberNumber || prev.memberNumber,
+        additionalIncome: existingCustomerLoan.applicant.additionalIncome || 0,
+        earnings: existingCustomerLoan.applicant.earnings || 0,
+      }));
+      if (existingCustomerLoan.relative) {
+        setRelative(existingCustomerLoan.relative);
+      }
+      if (existingCustomerLoan.guarantor1) {
+        setGuarantor1(existingCustomerLoan.guarantor1);
+      }
+      if (existingCustomerLoan.guarantor2) {
+        setGuarantor2(existingCustomerLoan.guarantor2);
+      }
+    }
+  }; 
+
+  // Automatically auto-populate as soon as matching NIC is found/typed
+  useEffect(() => {
+    if (!isEditMode && existingCustomerLoan) {
+      handleAutofill();
+    }
+  }, [existingCustomerLoan, isEditMode]);
 
   // Calculate calculations in real time
   const calculatedInterest = (Number(officeUse.approvedAmount) * (Number(officeUse.interestRate) / 100)) || 0;
@@ -306,25 +352,47 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
 
       {/* Preset quick buttons */}
       {!isEditMode && (
-        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5">
-          <span className="text-xs font-bold text-slate-400 block mb-3 uppercase tracking-wider">
-            {lang === "si" ? "ප්‍රධාන මුදල් තැන්පතු පැකේජ" : "Quick Capital Presets Packages"}
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {[10000, 20000, 40000, 50000, 60000, 70000, 80000, 90000, 100000].map((amt) => (
-              <button
-                key={amt}
-                type="button"
-                onClick={() => setSuggestedValues(amt)}
-                className={`px-3.5 py-2.5 rounded-xl text-xs font-mono font-bold border transition cursor-pointer select-none ${
-                    officeUse.approvedAmount === amt 
-                    ? "bg-slate-900 border-slate-900 text-white shadow-xs"
-                    : "bg-white border-slate-250 text-slate-600 hover:border-slate-350"
-                }`}
-              >
-                {formatLKR(amt)}
-              </button>
-            ))}
+        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 space-y-4">
+          <div>
+            <span className="text-xs font-bold text-slate-400 block mb-3 uppercase tracking-wider">
+              {lang === "si" ? "ප්‍රධාන මුදල් තැන්පතු පැකේජ" : "Quick Capital Presets Packages"}
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {[10000, 20000, 40000, 50000, 60000, 70000, 80000, 90000, 100000].map((amt) => (
+                <button
+                  key={amt}
+                  type="button"
+                  onClick={() => setSuggestedValues(amt)}
+                  className={`px-3.5 py-2.5 rounded-xl text-xs font-mono font-bold border transition cursor-pointer select-none ${
+                      officeUse.approvedAmount === amt 
+                      ? "bg-slate-900 border-slate-900 text-white shadow-xs"
+                      : "bg-white border-slate-250 text-slate-600 hover:border-slate-350"
+                  }`}
+                >
+                  {formatLKR(amt)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-200/60 flex flex-col sm:flex-row sm:items-center gap-3">
+            <span className="text-xs font-bold text-slate-600 font-sans tracking-wide">
+              {lang === "si" ? "වෙනත් කැමති මුදලක් ඇතුළත් කරන්න (LKR):" : "Or Enter Selected Capital Amount (LKR):"}
+            </span>
+            <div className="relative max-w-64 w-full">
+              <input
+                type="number"
+                placeholder={lang === "si" ? "උදා: 25500" : "e.g. 25500"}
+                value={officeUse.approvedAmount || ""}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setOfficeUse(prev => ({ ...prev, approvedAmount: val }));
+                  setLoanDetails(prev => ({ ...prev, requestedAmount: val }));
+                }}
+                className="w-full pl-4 pr-12 py-2 rounded-xl text-sm font-mono font-bold border border-slate-300 focus:outline-hidden focus:border-indigo-500 bg-white text-slate-800 transition"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-extrabold text-indigo-500">LKR</span>
+            </div>
           </div>
         </div>
       )}
@@ -335,12 +403,45 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
           <span className="bg-indigo-50 p-1.5 rounded-lg text-indigo-600">
             <User className="w-4 h-4" />
           </span>
-          <h3 className="font-extrabold text-slate-750 text-sm">
+          <h3 className="font-extrabold text-slate-755 text-sm">
             {t.secApplicantTitle}
           </h3>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Generated responsive fields */}
+          <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 bg-indigo-50/15 p-4 rounded-2xl border border-indigo-100">
+            <div className="space-y-1">
+              <label className="text-xs font-black text-indigo-700 uppercase tracking-widest block">
+                {lang === "si" ? "නව සාමාජික අංකය (New Member Number) *" : "New Member Number (Unique ID) *"}
+              </label>
+              <input
+                type="text"
+                required
+                value={applicant.memberNumber || ""}
+                onChange={(e) => setApplicant({ ...applicant, memberNumber: e.target.value })}
+                className="w-full px-4 py-2 bg-white rounded-xl border border-indigo-200 text-indigo-850 text-xs font-mono font-black tracking-wider focus:outline-hidden"
+              />
+              <p className="text-[9px] text-indigo-550 font-bold">{lang === "si" ? "සාමාජිකයා ලියාපදිංචි වන විට ලැබෙන නව ID අංකය" : "Assigned permanently once registered."}</p>
+            </div>
+            
+            <div className="space-y-1">
+              <label className="text-xs font-black text-indigo-700 uppercase tracking-widest block">
+                {lang === "si" ? "ණය ගිණුම් අංකය (Loan Number) *" : "Loan Number (Specific Credit Ref) *"}
+              </label>
+              <input
+                type="text"
+                required
+                value={officeUse.loanNumber || ""}
+                onChange={(e) => {
+                  setOfficeUse({ ...officeUse, loanNumber: e.target.value });
+                }}
+                className="w-full px-4 py-2 bg-white rounded-xl border border-indigo-200 text-indigo-850 text-xs font-mono font-black tracking-wider focus:outline-hidden"
+              />
+              <p className="text-[9px] text-indigo-550 font-bold">{lang === "si" ? "මෙම ණය අයදුම්පත සඳහා වෙන්වූ අංකය" : "Assigned specifically for this credit loop."}</p>
+            </div>
+          </div>
+
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-400 uppercase">{t.formFullName}</label>
             <input
@@ -369,6 +470,17 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
                     : "border-slate-250 focus:border-indigo-600 bg-slate-50/50 text-slate-755"
               }`}
             />
+            {existingCustomerLoan && (
+              <button
+                type="button"
+                onClick={handleAutofill}
+                className="mt-2 text-left w-full text-[10px] font-black bg-indigo-50 hover:bg-indigo-100 text-indigo-700 p-2.5 rounded-xl border border-indigo-200 cursor-pointer block transition duration-150"
+              >
+                💡 {lang === "si" 
+                  ? "පෙර පාරිභෝගික තොරතුරු සොයා ගන්නා ලදී! තොරතුරු ස්වයංක්‍රීයව පිරවීමට මෙහි ක්ලික් කරන්න." 
+                  : "Existing customer profile found! Click here to automatically auto-fill current details."}
+              </button>
+            )}
             {applicantNicCheck.hasActiveLoan && (
               <p className="text-[9.5px] font-black text-rose-600 mt-1 uppercase tracking-wider">
                 ⚠️ {lang === "si" 
@@ -405,6 +517,32 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
               placeholder="e.g., 0771234567"
               value={applicant.phone}
               onChange={(e) => setApplicant({ ...applicant, phone: e.target.value })}
+              className="w-full px-4 py-2.5 rounded-xl border border-slate-250 focus:outline-hidden focus:border-indigo-600 bg-slate-50/50 text-slate-750 text-xs font-mono font-bold focus:bg-white transition"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-400 uppercase">
+              {lang === "si" ? "අතිරේක ආදායම (Additional Income)" : "Additional Income"}
+            </label>
+            <input
+              type="number"
+              placeholder="e.g., 25000"
+              value={applicant.additionalIncome || ""}
+              onChange={(e) => setApplicant({ ...applicant, additionalIncome: Number(e.target.value) })}
+              className="w-full px-4 py-2.5 rounded-xl border border-slate-250 focus:outline-hidden focus:border-indigo-600 bg-slate-50/50 text-slate-750 text-xs font-mono font-bold focus:bg-white transition"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-400 uppercase">
+              {lang === "si" ? "පෞද්ගලික ඉපැයීම් (Earnings)" : "Earnings"}
+            </label>
+            <input
+              type="number"
+              placeholder="e.g., 75050"
+              value={applicant.earnings || ""}
+              onChange={(e) => setApplicant({ ...applicant, earnings: Number(e.target.value) })}
               className="w-full px-4 py-2.5 rounded-xl border border-slate-250 focus:outline-hidden focus:border-indigo-600 bg-slate-50/50 text-slate-750 text-xs font-mono font-bold focus:bg-white transition"
             />
           </div>
@@ -924,6 +1062,30 @@ export default function LoanForm({ onSave, onCancel, initialLoan, fieldOfficers,
                 <option key={o.id} value={o.id}>{o.name} ({o.nic})</option>
               ))}
             </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-slate-405 text-slate-400 uppercase">
+              {lang === "si" ? "පියවූ දිනය (Settled Date)" : "Settled Date (To mark closure)"}
+            </label>
+            <input
+              type="date"
+              value={officeUse.settledDate || ""}
+              onChange={(e) => setOfficeUse({ ...officeUse, settledDate: e.target.value })}
+              className="w-full px-4 py-2.5 rounded-xl border border-slate-800 focus:outline-hidden focus:border-indigo-550 bg-slate-950 text-white text-xs font-mono font-bold transition"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-slate-405 text-slate-400 uppercase">
+              {lang === "si" ? "අවසන් පියවීම් දිනය (Final Due Date)" : "Final date to be settled"}
+            </label>
+            <input
+              type="date"
+              value={officeUse.finalSettlementDate || ""}
+              onChange={(e) => setOfficeUse({ ...officeUse, finalSettlementDate: e.target.value })}
+              className="w-full px-4 py-2.5 rounded-xl border border-slate-800 focus:outline-hidden focus:border-indigo-550 bg-slate-950 text-white text-xs font-mono font-bold transition"
+            />
           </div>
 
           <div className="space-y-1.5 md:col-span-3">

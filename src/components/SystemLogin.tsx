@@ -32,6 +32,25 @@ export default function SystemLogin({ fieldOfficers, onAdminLogin, onOfficerLogi
       const emailLower = value.toLowerCase().trim();
       let officer = fieldOfficers.find(o => o.email?.toLowerCase().trim() === emailLower);
       
+      // Special integration requested for dhammikarathnayakework@gmail.com with pin 1234
+      if (!officer && emailLower === 'dhammikarathnayakework@gmail.com') {
+        officer = {
+          id: 'admin-dhammika',
+          name: 'Dhammika Rathnayake',
+          nic: 'SEC-ADMIN-DR',
+          phone: '0770000000',
+          address: 'Seth Capital Headquarters',
+          email: 'dhammikarathnayakework@gmail.com',
+          pin: '1234',
+          position: 'ADMIN',
+          canApproveLoans: true,
+          expenses: [],
+          allowances: [],
+          remittances: [],
+          createdAt: new Date().toISOString()
+        };
+      }
+
       // Special integration requested for addigitalonlinework@gmail.com with pin 1234
       if (!officer && emailLower === 'addigitalonlinework@gmail.com') {
         officer = {

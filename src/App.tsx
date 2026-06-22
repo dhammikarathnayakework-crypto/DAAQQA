@@ -20,10 +20,12 @@ import {
   Coins,
   Languages,
   UserCheck,
+  Users,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Receipt
 } from "lucide-react";
-import { Loan, PaymentCollection, FieldOfficer, Investor, OfficerRepTransfer } from "./types";
+import { Loan, PaymentCollection, FieldOfficer, Investor, OfficerRepTransfer, OfficeExpenseItem } from "./types";
 import { SAMPLE_LOANS } from "./utils";
 import Dashboard from "./components/Dashboard";
 import LoanForm from "./components/LoanForm";
@@ -33,7 +35,9 @@ import BackupManager from "./components/BackupManager";
 import SupabaseSyncManager from "./components/SupabaseSyncManager";
 import FieldOfficersManager from "./components/FieldOfficersManager";
 import InvestorsManager from "./components/InvestorsManager";
+import OfficeExpensesManager from "./components/OfficeExpensesManager";
 import FieldOfficerHub from "./components/FieldOfficerHub";
+import MembersManager from "./components/MembersManager";
 import SystemLogin from "./components/SystemLogin";
 import { 
   sendLoanToSupabase, 
@@ -69,11 +73,18 @@ const DefaultLogoSvg = () => (
   </svg>
 );
 
-type ActiveTab = "DASHBOARD" | "NEW_LOAN" | "LOAN_LIST" | "LOAN_DETAILS" | "BACKUP_RESTORE" | "FIELD_OFFICERS" | "INVESTORS";
+type ActiveTab = "DASHBOARD" | "NEW_LOAN" | "LOAN_LIST" | "LOAN_DETAILS" | "BACKUP_RESTORE" | "FIELD_OFFICERS" | "INVESTORS" | "OFFICE_EXPENSES" | "MEMBERS";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("DASHBOARD");
   const [logoError, setLogoError] = useState(false);
+  const [logoPathIndex, setLogoPathIndex] = useState(0);
+  const logoPaths = [
+    "/WhatsApp Image 2026-04-28 at 19.47.22.jpeg",
+    "/WhatsApp%20Image%202026-04-28%20at%2019.47.22.jpeg",
+    "/logo.jpeg",
+    "/logo.png"
+  ];
   const [loans, setLoans] = useState<Loan[]>(() => {
     const saved = localStorage.getItem("seth-capital-loans");
     if (saved) {
@@ -92,7 +103,39 @@ export default function App() {
   const [fieldOfficers, setFieldOfficers] = useState<FieldOfficer[]>(() => {
     const saved = localStorage.getItem("seth-capital-field-officers");
     let list: FieldOfficer[] = saved ? JSON.parse(saved) : [];
+    list = list.map(o => ({
+      ...o,
+      allowances: o.allowances || [],
+      expenses: o.expenses || [],
+      remittances: o.remittances || [],
+      repTransfers: o.repTransfers || []
+    }));
     
+    // Ensure admin user with email dhammikarathnayakework@gmail.com and PIN 1234 is pre-seeded
+    const hasDhammika = list.some(o => o.email?.toLowerCase().trim() === 'dhammikarathnayakework@gmail.com');
+    if (!hasDhammika) {
+      list.push({
+        id: "admin-dhammika",
+        name: "Dhammika Rathnayake",
+        nic: "SEC-ADMIN-DR",
+        phone: "0770000000",
+        address: "Seth Capital Headquarters",
+        employeeId: "EM-DR",
+        email: "dhammikarathnayakework@gmail.com",
+        vehicleNumber: "WP-CAS-5678",
+        joinedDate: "2026-01-01",
+        targetCollection: 1000000,
+        status: "ACTIVE",
+        position: "ADMIN",
+        canApproveLoans: true,
+        pin: "1234",
+        expenses: [],
+        allowances: [],
+        remittances: [],
+        createdAt: new Date().toISOString()
+      });
+    }
+
     // Ensure admin user with email addigitalonlinework@gmail.com and PIN 1234 is pre-seeded
     const hasAdmin = list.some(o => o.email?.toLowerCase().trim() === 'addigitalonlinework@gmail.com');
     if (!hasAdmin) {
@@ -122,6 +165,11 @@ export default function App() {
 
   const [investors, setInvestors] = useState<Investor[]>(() => {
     const saved = localStorage.getItem("seth-capital-investors");
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [officeExpenses, setOfficeExpenses] = useState<OfficeExpenseItem[]>(() => {
+    const saved = localStorage.getItem("seth-capital-office-expenses");
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -193,6 +241,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("seth-capital-investors", JSON.stringify(investors));
   }, [investors]);
+
+  useEffect(() => {
+    localStorage.setItem("seth-capital-office-expenses", JSON.stringify(officeExpenses));
+  }, [officeExpenses]);
 
   useEffect(() => {
     localStorage.setItem("seth-capital-user-role", currentUserRole);
@@ -478,7 +530,7 @@ export default function App() {
       if (o.id === officerId) {
         return {
           ...o,
-          expenses: [expense, ...o.expenses]
+          expenses: [expense, ...(o.expenses || [])]
         };
       }
       return o;
@@ -497,7 +549,7 @@ export default function App() {
       if (o.id === officerId) {
         return {
           ...o,
-          remittances: [remittance, ...o.remittances]
+          remittances: [remittance, ...(o.remittances || [])]
         };
       }
       return o;
@@ -582,6 +634,30 @@ export default function App() {
     });
   };
 
+  // Handlers for Office Overhead Expenses
+  const handleAddOfficeExpense = (expense: OfficeExpenseItem) => {
+    setOfficeExpenses((prev) => [expense, ...prev]);
+  };
+
+  const handleUpdateOfficeExpenseStatus = (id: string, status: 'APPROVED' | 'REJECTED', approvedBy: string) => {
+    setOfficeExpenses((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              status,
+              approvedBy,
+              verifiedAt: new Date().toISOString().split("T")[0]
+            }
+          : e
+      )
+    );
+  };
+
+  const handleDeleteOfficeExpense = (id: string) => {
+    setOfficeExpenses((prev) => prev.filter((e) => e.id !== id));
+  };
+
   // Router rendering helper
   const renderContent = () => {
     const activeOfficer = currentUserRole === "OFFICER" ? fieldOfficers.find((o) => o.id === selectedOfficerId) : null;
@@ -615,6 +691,8 @@ export default function App() {
           <Dashboard 
             loans={loans} 
             fieldOfficers={fieldOfficers}
+            investors={investors}
+            officeExpenses={officeExpenses}
             onSelectLoan={(id) => {
               setSelectedLoanId(id);
               setActiveTab("LOAN_DETAILS");
@@ -690,6 +768,8 @@ export default function App() {
             onUpdateOfficer={handleUpdateOfficer}
             loans={loans}
             lang={lang}
+            currentLoggedOfficerId={selectedOfficerId}
+            currentUserRole={currentUserRole}
           />
         );
       case "INVESTORS":
@@ -700,6 +780,28 @@ export default function App() {
             onDeleteInvestor={handleDeleteInvestor}
             onUpdateInvestor={handleUpdateInvestor}
             lang={lang}
+          />
+        );
+      case "OFFICE_EXPENSES":
+        return (
+          <OfficeExpensesManager
+            expenses={officeExpenses}
+            onAddExpense={handleAddOfficeExpense}
+            onUpdateExpenseStatus={handleUpdateOfficeExpenseStatus}
+            onDeleteExpense={handleDeleteOfficeExpense}
+            lang={lang}
+            hasApprovalAuthority={hasApprovalAuthority}
+            loggedOfficerName={activeStaffOfficer ? activeStaffOfficer.name : "Admin Head Office"}
+            loggedOfficerId={selectedOfficerId}
+          />
+        );
+      case "MEMBERS":
+        return (
+          <MembersManager
+            loans={loans}
+            lang={lang}
+            onSelectLoan={(id) => setSelectedLoanId(id)}
+            setActiveTab={(tab) => setActiveTab(tab)}
           />
         );
       case "BACKUP_RESTORE":
@@ -744,13 +846,13 @@ export default function App() {
                       className="w-full h-full object-contain" 
                       referrerPolicy="no-referrer"
                     />
-                  ) : !logoError ? (
+                  ) : logoPathIndex < logoPaths.length ? (
                     <img 
-                      src="/logo.jpeg" 
+                      src={logoPaths[logoPathIndex]} 
                       alt="Current Logo" 
                       className="w-full h-full object-contain" 
                       referrerPolicy="no-referrer"
-                      onError={() => setLogoError(true)}
+                      onError={() => setLogoPathIndex(prev => prev + 1)}
                     />
                   ) : (
                     <DefaultLogoSvg />
@@ -857,13 +959,13 @@ export default function App() {
                   className="w-full h-full object-contain" 
                   referrerPolicy="no-referrer" 
                 />
-              ) : !logoError ? (
+              ) : logoPathIndex < logoPaths.length ? (
                 <img 
-                  src="/logo.jpeg" 
+                  src={logoPaths[logoPathIndex]} 
                   alt="SCL Seth Capital Logo" 
                   className="w-full h-full object-contain" 
                   referrerPolicy="no-referrer" 
-                  onError={() => setLogoError(true)}
+                  onError={() => setLogoPathIndex(prev => prev + 1)}
                 />
               ) : (
                 <DefaultLogoSvg />
@@ -938,7 +1040,7 @@ export default function App() {
             <div className="hidden lg:flex items-center gap-5 text-[10px] text-slate-400 border-l border-slate-800 pl-5 select-none font-bold font-sans">
               <div className="flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="font-mono">{activeStaffOfficer?.email || "addigitalonlinework@gmail.com"}</span>
+                <span className="font-mono">{activeStaffOfficer?.email || "dhammikarathnayakework@gmail.com"}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-indigo-400" />
@@ -989,6 +1091,8 @@ export default function App() {
                   { id: "LOAN_LIST", label: t.creditLedger, sub: lang === "si" ? "ණය ගිණුම් ලේඛනය" : "All Credit Directory", icon: TableProperties },
                   { id: "NEW_LOAN", label: t.newApplication, sub: lang === "si" ? "නව ණය ඉල්ලුම්පත්" : "Underwrite Portfolio", icon: FilePlus },
                   { id: "FIELD_OFFICERS", label: lang === "si" ? "නිලධාරීන්" : "Officers", sub: lang === "si" ? "නිලධාරීන් සහ වියදම්" : "Reps & Cash-in-Hand", icon: UserCheck },
+                  { id: "OFFICE_EXPENSES", label: lang === "si" ? "කාර්යාලීය වියදම්" : "Office Expenses", sub: lang === "si" ? "බිල්පත් සහ අනෙකුත් වියදම්" : "Bills & General Overheads", icon: Receipt },
+                  { id: "MEMBERS", label: lang === "si" ? "සාමාජිකයින්" : "Members", sub: lang === "si" ? "සාමාජික විස්තර සහ නය ගෙවීම්" : "Member Portfolios & History", icon: Users },
                   { id: "INVESTORS", label: lang === "si" ? "ආයෝජකයින්" : "Investors", sub: lang === "si" ? "ආයෝජන සහ ප්‍රාග්ධනය" : "Capital Portfolio", icon: Coins },
                   { id: "BACKUP_RESTORE", label: t.backupRestore, sub: lang === "si" ? "උපස්ථ" : "Database System Utilities", icon: Database },
                 ].map((tab) => {
@@ -1058,6 +1162,8 @@ export default function App() {
               { id: "LOAN_LIST", label: t.creditLedger, icon: TableProperties },
               { id: "NEW_LOAN", label: t.newApplication, icon: FilePlus },
               { id: "FIELD_OFFICERS", label: lang === "si" ? "නිලධාරීන්" : "Officers", icon: UserCheck },
+              { id: "OFFICE_EXPENSES", label: lang === "si" ? "කාර්යාලීය වියදම්" : "Office Expenses", icon: Receipt },
+              { id: "MEMBERS", label: lang === "si" ? "සාමාජිකයින්" : "Members", icon: Users },
               { id: "INVESTORS", label: lang === "si" ? "ආයෝජකයින්" : "Investors", icon: Coins },
               { id: "BACKUP_RESTORE", label: t.backupRestore, icon: Database },
             ].map((tab) => {

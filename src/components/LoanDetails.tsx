@@ -663,13 +663,41 @@ export default function LoanDetails({
             <h3 className="text-xs font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-1.5 font-sans">
               <User className="w-4 h-4" /> {t.borrowerProfile}
             </h3>
-            <div className="space-y-2 text-sm">
-              <p className="text-slate-800 font-extrabold text-base font-sans">{loan.applicant.fullName}</p>
+             <div className="space-y-4 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-slate-800 font-extrabold text-base font-sans">{loan.applicant.fullName}</p>
+                {loan.applicant.memberNumber && (
+                  <span className="bg-indigo-600 text-white font-mono font-black text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider animate-pulse shadow-md shadow-indigo-100">
+                    ID: {loan.applicant.memberNumber}
+                  </span>
+                )}
+                {loan.officeUse.loanNumber && (
+                  <span className="bg-emerald-600 text-white font-mono font-black text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider">
+                    LOAN NO: {loan.officeUse.loanNumber}
+                  </span>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-2 text-xs text-slate-505">
                 <span className="font-bold text-slate-400">{t.nic}:</span>
                 <span className="font-bold text-slate-700 font-mono">{loan.applicant.nic}</span>
                 <span className="font-bold text-slate-400">{t.phone}:</span>
                 <span className="font-bold text-slate-755 font-mono">{loan.applicant.phone}</span>
+
+                {loan.applicant.additionalIncome !== undefined && (
+                  <>
+                    <span className="font-bold text-slate-400">{lang === 'si' ? 'අතිරේක ආදායම:' : 'Additional Income:'}</span>
+                    <span className="font-bold font-mono text-slate-700">{formatLKR(loan.applicant.additionalIncome || 0)}</span>
+                  </>
+                )}
+
+                {loan.applicant.earnings !== undefined && (
+                  <>
+                    <span className="font-bold text-slate-400">{lang === 'si' ? 'පෞද්ගලික ඉපැයීම්:' : 'Earnings:'}</span>
+                    <span className="font-bold font-mono text-slate-700">{formatLKR(loan.applicant.earnings || 0)}</span>
+                  </>
+                )}
+
                 <span className="font-bold text-slate-400">{t.address}:</span>
                 <span className="font-bold text-slate-700 leading-relaxed col-span-2 mt-1 bg-slate-50 p-2.5 rounded-xl border">{loan.applicant.address}</span>
               </div>
@@ -923,6 +951,33 @@ export default function LoanDetails({
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        {/* Settlement timeline status */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 border p-4 rounded-2xl text-xs font-sans">
+          <div className="flex items-center gap-3">
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+            <div>
+              <span className="block text-slate-400 font-extrabold text-[9px] uppercase tracking-wider">
+                {lang === "si" ? "පියවූ දිනය (Settled Date)" : "Settled Date (Closure mark)"}
+              </span>
+              <span className="font-mono font-black text-slate-750 text-xs">
+                {loan.officeUse.settledDate ? loan.officeUse.settledDate : (loan.status === 'COMPLETED' ? 'Marked complete on update' : 'Active / Pending clearance')}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 shrink-0" />
+            <div>
+              <span className="block text-slate-400 font-extrabold text-[9px] uppercase tracking-wider">
+                {lang === "si" ? "ණය පියවිය යුතු අවසන් දිනය (Final Due Date)" : "Final date to be settled"}
+              </span>
+              <span className="font-mono font-black text-slate-750 text-xs text-indigo-700">
+                {loan.officeUse.finalSettlementDate ? loan.officeUse.finalSettlementDate : 'N/A (Repayment run ongoing)'}
+              </span>
+            </div>
           </div>
         </div>
 

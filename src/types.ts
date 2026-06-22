@@ -8,6 +8,9 @@ export interface ApplicantInfo {
   nic: string;                     // ජාතික හැඳුනුම්පත් අංකය
   address: string;                 // ස්ථිර ලිපිනය
   phone: string;                   // දුරකථන අංකය
+  memberNumber?: string;           // සාමාජික අංකය (New Member Number - unique)
+  additionalIncome?: number;       // අතිරේක ආදායම (Additional Income)
+  earnings?: number;               // පෞද්ගලික ඉපැයීම් (Earnings)
   idFront?: string;                // හැඳුනුම්පත් ඉදිරිපස පින්තූරය (base64)
   idBack?: string;                 // හැඳුනුම්පත් පසුපස පින්තූරය (base64)
   signedDoc?: string;              // අත්සන් කරන ලද අයදුම්පත් ලේඛනය (base64)
@@ -47,6 +50,9 @@ export interface OfficeUseInfo {
   monthlyInstallment: number;      // මාසික වාරිකය
   specialNotes: string;            // විශේෂ සටහන්
   loanDate: string;                // ණය ලබාදුන් දිනය (YYYY-MM-DD or standard ISO)
+  loanNumber?: string;              // ණය අංකය (Loan Number)
+  settledDate?: string;             // පියවූ දිනය (Settled Date)
+  finalSettlementDate?: string;     // අවසන් පියවීම් දිනය (Final date to be settled)
   disbursedByOfficerId?: string;   // මුදල් නිකුත් කළ නිලධාරියා
   createdByOfficerId?: string;     // ලියාපදිංචි කළ නිලධාරියාගේ ID
   createdByOfficerName?: string;   // ලියාපදිංචි කළ නිලධාරියාගේ නම
@@ -101,6 +107,21 @@ export interface OfficerExpense {
   referenceToken?: string;         // සත්‍යාපන ටෝකනය
 }
 
+export interface OfficeExpenseItem {
+  id: string;
+  date: string;
+  category: 'WATER' | 'ELECTRICITY' | 'RENT' | 'STATIONERY' | 'INTERNET' | 'MAINTENANCE' | 'SALARY' | 'OTHER';
+  description: string;             // විස්තරය
+  amount: number;                  // මුදල
+  notes?: string;                  // වෙනත් සටහන්
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'; // තත්ත්වය
+  loggedByOfficerId?: string;      // වාර්තා කළ නිලධාරියාගේ ID
+  loggedByOfficerName?: string;    // වාර්තා කළ නිලධාරියාගේ නම
+  approvedBy?: string;             // අනුමත කල පුද්ගලයා / සාක්ෂිකරු
+  verifiedAt?: string;             // සත්‍යාපිත දිනය
+  billImage?: string;              // බිල්පත පින්තූරය (base64)
+}
+
 export interface OfficerAllowance {
   id: string;
   date: string;
@@ -143,6 +164,9 @@ export interface FieldOfficer {
   vehicleNumber?: string;          // වාහන අංකය (Vehicle Number)
   joinedDate?: string;             // සේවයට බැඳුණු දිනය (Joined Date)
   targetCollection?: number;       // මාසික එකතු කිරීමේ ඉලක්කය (Target Collection)
+  monthlyDisbursedTarget?: number; // මාසික ණය නිකුත් කිරීමේ ඉලක්කය (Monthly Disbursed Target)
+  commissionRateAboveTarget?: number; // ඉලක්කයට එහා ලබා දෙන ණය සඳහා කොමිස් ප්‍රතිශතය (%)
+  incentivePerNewMember?: number;  // නව සාමාජිකයෙකු හඳුන්වා දීමට ලැබෙන දීමනාව (Incentive per new member)
   status?: 'ACTIVE' | 'INACTIVE';  // ක්‍රියාකාරී තත්ත්වය (Active/Inactive)
   expenses: OfficerExpense[];
   allowances: OfficerAllowance[];

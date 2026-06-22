@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   User, 
   Coins, 
@@ -23,7 +23,9 @@ import {
   Trash2,
   Upload,
   Bell,
-  Camera
+  Camera,
+  Award,
+  Users
 } from "lucide-react";
 import { FieldOfficer, Loan, OfficerAllowance, OfficerExpense, OfficerRemittance, PaymentCollection, OfficerRepTransfer } from "../types";
 import { formatLKR, generateId, checkNicStatus } from "../utils";
@@ -198,8 +200,8 @@ interface FieldOfficerHubProps {
 }
 
 export default function FieldOfficerHub({
-  officer,
-  fieldOfficers,
+  officer: initialOfficer,
+  fieldOfficers: initialFieldOfficers,
   loans,
   onAddCollection,
   onUpdateAllowanceStatus,
@@ -212,8 +214,24 @@ export default function FieldOfficerHub({
   onLogout,
   lang
 }: FieldOfficerHubProps) {
+  const officer = {
+    ...initialOfficer,
+    allowances: initialOfficer.allowances || [],
+    expenses: initialOfficer.expenses || [],
+    remittances: initialOfficer.remittances || [],
+    repTransfers: initialOfficer.repTransfers || []
+  };
+
+  const fieldOfficers = (initialFieldOfficers || []).map(o => ({
+    ...o,
+    allowances: o.allowances || [],
+    expenses: o.expenses || [],
+    remittances: o.remittances || [],
+    repTransfers: o.repTransfers || []
+  }));
+
   const t = translations[lang];
-  const [activeTab, setActiveTab] = useState<'WORKSPACE' | 'NEW_CLIENT' | 'COLLECT' | 'EXPENSE_REMIT' | 'EOD'>('WORKSPACE');
+  const [activeTab, setActiveTab] = useState<'WORKSPACE' | 'NEW_CLIENT' | 'COLLECT' | 'EXPENSE_REMIT' | 'EOD' | 'STATEMENT' | 'COMMISSIONS'>('WORKSPACE');
   const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
 
   // Approved loan notifications track
@@ -292,6 +310,7 @@ export default function FieldOfficerHub({
   const [selectedLoanId, setSelectedLoanId] = useState<string>("");
   const [collectAmount, setCollectAmount] = useState<string>("");
   const [collectNotes, setCollectNotes] = useState<string>("");
+  const [collectDate, setCollectDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
   const [lastCollectionReceipt, setLastCollectionReceipt] = useState<{
     msg: string;
     targetPhone: string;
@@ -376,6 +395,41 @@ export default function FieldOfficerHub({
   const relNicCheck = checkNicStatus(relNic, loans);
   const g1NicCheck = checkNicStatus(g1Nic, loans);
 
+  const existingClientLoan = custNic.trim().length >= 8
+    ? loans.find(l => l.applicant.nic.toLowerCase().trim() === custNic.toLowerCase().trim())
+    : undefined;
+
+  // Auto-populate when matching NIC is found for field representatives
+  useEffect(() => {
+    if (existingClientLoan) {
+      setCustName(existingClientLoan.applicant.fullName || "");
+      setCustPhone(existingClientLoan.applicant.phone || "");
+      setCustAddress(existingClientLoan.applicant.address || "");
+      if (existingClientLoan.applicant.idFront) setAppIdFront(existingClientLoan.applicant.idFront);
+      if (existingClientLoan.applicant.idBack) setAppIdBack(existingClientLoan.applicant.idBack);
+      if (existingClientLoan.applicant.signedDoc) setAppSignedDoc(existingClientLoan.applicant.signedDoc);
+
+      if (existingClientLoan.relative) {
+        setRelName(existingClientLoan.relative.name || "");
+        setRelRelationship(existingClientLoan.relative.relationship || "");
+        setRelNic(existingClientLoan.relative.nic || "");
+        setRelPhone(existingClientLoan.relative.phone || "");
+        setRelAddress(existingClientLoan.relative.address || "");
+        if (existingClientLoan.relative.idFront) setRelIdFront(existingClientLoan.relative.idFront);
+        if (existingClientLoan.relative.idBack) setRelIdBack(existingClientLoan.relative.idBack);
+      }
+
+      if (existingClientLoan.guarantor1) {
+        setG1Name(existingClientLoan.guarantor1.name || "");
+        setG1Nic(existingClientLoan.guarantor1.nic || "");
+        setG1Phone(existingClientLoan.guarantor1.phone || "");
+        setG1Address(existingClientLoan.guarantor1.address || "");
+        if (existingClientLoan.guarantor1.idFront) setG1IdFront(existingClientLoan.guarantor1.idFront);
+        if (existingClientLoan.guarantor1.idBack) setG1IdBack(existingClientLoan.guarantor1.idBack);
+      }
+    }
+  }, [existingClientLoan]);
+
   // Document Upload States
   const [appIdFront, setAppIdFront] = useState("");
   const [appIdBack, setAppIdBack] = useState("");
@@ -398,7 +452,8 @@ export default function FieldOfficerHub({
         ...c,
         loanId: l.id,
         loanName: l.applicant.fullName,
-        loanNic: l.applicant.nic
+        loanNic: l.applicant.nic,
+        loanStatus: l.status
       }))
   );
 
@@ -432,6 +487,257 @@ export default function FieldOfficerHub({
   // Pending Transfers received waiting for this rep's confirmation
   const pendingTransfersReceived = fieldOfficers.flatMap(o => o.repTransfers || []).filter(t => t.toOfficerId === officer.id && t.status === 'PENDING');
 
+  // Chronological Running Cash Ledger helper
+  const getOfficerLedger = () => {
+    const entries: {
+      id: string;
+      date: string;
+      type: string;
+      description: string;
+      amount: number;
+      direction: 'IN' | 'OUT';
+      runningBalance?: number;
+    }[] = [];
+
+    // 1. Collections (+ IN)
+    officerCollections.forEach(c => {
+      entries.push({
+        id: c.id,
+        date: c.date,
+        type: 'COLLECTION',
+        description: lang === "si" 
+          ? `ණය වාරික එකතු කිරීම - ${c.loanName} (${c.receiptNumber})`
+          : `Collection - ${c.loanName} (${c.receiptNumber})`,
+        amount: c.amount,
+        direction: 'IN'
+      });
+    });
+
+    // 2. Allowances (Morning Floats, Batta, etc.) (+ IN)
+    approvedAllowances.forEach(a => {
+      let descEn = "Allowance";
+      let descSi = "දීමනාව";
+      if (a.type === 'FLOAT') {
+        descEn = "Morning Float";
+        descSi = "ආරම්භක අත්මුදල";
+      } else if (a.type === 'BATTA') {
+        descEn = "Daily Batta";
+        descSi = "බත්තා දීමනාව";
+      } else if (a.type === 'OTHER') {
+        descEn = "Other Float/Allowance";
+        descSi = "වෙනත් දීමනා/අත්මුදල්";
+      }
+      entries.push({
+        id: a.id,
+        date: a.date,
+        type: 'ALLOWANCE',
+        description: lang === "si" 
+          ? `${descSi} (Floats)${a.notes ? ` - ${a.notes}` : ''}`
+          : `${descEn} (Floats)${a.notes ? ` - ${a.notes}` : ''}`,
+        amount: a.amount,
+        direction: 'IN'
+      });
+    });
+
+    // 3. Transfers In (+ IN)
+    fieldOfficers.flatMap(o => (o.repTransfers || []).map(t => ({ ...t, fromOfficerName: o.name })))
+      .filter(t => t.toOfficerId === officer.id && t.status === 'ACCEPTED')
+      .forEach(t => {
+        entries.push({
+          id: t.id,
+          date: t.date,
+          type: 'TRANSFER_IN',
+          description: lang === "si"
+            ? `ලි. ලැබීම - නිලධාරි: ${t.fromOfficerName}${t.notes ? ` (${t.notes})` : ''}`
+            : `Transfer In - from Rep: ${t.fromOfficerName}${t.notes ? ` (${t.notes})` : ''}`,
+          amount: t.amount,
+          direction: 'IN'
+        });
+      });
+
+    // 4. Expenses (- OUT)
+    officer.expenses.filter(e => e.status !== 'REJECTED').forEach(e => {
+      entries.push({
+        id: e.id,
+        date: e.date,
+        type: 'EXPENSE',
+        description: lang === "si"
+          ? `වියදම: ${e.description}`
+          : `Expense: ${e.description}`,
+        amount: e.amount,
+        direction: 'OUT'
+      });
+    });
+
+    // 5. Remittances (- OUT)
+    officer.remittances.filter(r => r.status !== 'REJECTED').forEach(r => {
+      entries.push({
+        id: r.id,
+        date: r.date,
+        type: 'REMITTANCE',
+        description: lang === "si"
+          ? `කාර්යාලයට භාරදීම${r.notes ? ` - ${r.notes}` : ''}`
+          : `Remittance to HQ${r.notes ? ` - ${r.notes}` : ''}`,
+        amount: r.amount,
+        direction: 'OUT'
+      });
+    });
+
+    // 6. Disbursed Loans (- OUT)
+    disbursedLoansByRep.forEach(l => {
+      entries.push({
+        id: `disb-${l.id}`,
+        date: l.officeUse.loanDate || l.createdAt.split('T')[0],
+        type: 'DISBURSEMENT',
+        description: lang === "si"
+          ? `ණය මුදලක් නිකුත් කිරීම - ${l.applicant.fullName} (#${l.officeUse.applicationNumber})`
+          : `Loan Disbursed - ${l.applicant.fullName} (#${l.officeUse.applicationNumber})`,
+        amount: l.officeUse.approvedAmount,
+        direction: 'OUT'
+      });
+    });
+
+    // 7. Transfers Out (- OUT)
+    (officer.repTransfers || [])
+      .filter(t => t.status !== 'REJECTED')
+      .forEach(t => {
+        const receiverName = fieldOfficers.find(o => o.id === t.toOfficerId)?.name || 'Other Rep';
+        entries.push({
+          id: t.id,
+          date: t.date,
+          type: 'TRANSFER_OUT',
+          description: lang === "si"
+            ? `ලි. මුදල් මාරු කිරීම - නිලධාරි: ${receiverName} (${t.status})`
+            : `Transfer Out - to Rep: ${receiverName} (${t.status})`,
+          amount: t.amount,
+          direction: 'OUT'
+        });
+      });
+
+    // Sort Ascending chronologically
+    entries.sort((a, b) => {
+      if (a.date !== b.date) {
+        return a.date.localeCompare(b.date);
+      }
+      return a.id.localeCompare(b.id);
+    });
+
+    // Compute Running Balance
+    let rBal = 0;
+    return entries.map(ent => {
+      if (ent.direction === 'IN') {
+        rBal += ent.amount;
+      } else {
+        rBal -= ent.amount;
+      }
+      return {
+        ...ent,
+        runningBalance: rBal
+      };
+    });
+  };
+
+  const ledger = getOfficerLedger();
+
+  // Calculations for current officer with strict audit compliance
+  const calculateOfficerMetrics = (officerObj: typeof officer) => {
+    // Get all disbursed loans by this officer
+    const officerDisbursedLoans = loans.filter(l => l.officeUse.disbursedByOfficerId === officerObj.id);
+    const totalDisbursed = officerDisbursedLoans.reduce((sum, l) => sum + l.officeUse.approvedAmount, 0);
+
+    // Identify New Member Loans (first loan across the entire system for each NIC)
+    const newMemberLoanIds = new Set<string>();
+    const loansByNic = new Map<string, Loan[]>();
+    loans.forEach(l => {
+      const nic = l.applicant.nic.toUpperCase().trim();
+      if (nic) {
+        const existing = loansByNic.get(nic) || [];
+        existing.push(l);
+        loansByNic.set(nic, existing);
+      }
+    });
+
+    loansByNic.forEach((nicLoans) => {
+      const sorted = [...nicLoans].sort((a, b) => {
+        const dateA = new Date(a.officeUse.loanDate || a.createdAt).getTime();
+        const dateB = new Date(b.officeUse.loanDate || b.createdAt).getTime();
+        return dateA - dateB;
+      });
+      if (sorted.length > 0) {
+        newMemberLoanIds.add(sorted[0].id);
+      }
+    });
+
+    // Month-by-month disbursement stats and commission
+    const monthMap = new Map<string, {
+      monthKey: string;
+      monthTotalDisbursed: number;
+      monthNewMembersCount: number;
+    }>();
+
+    officerDisbursedLoans.forEach(l => {
+      const dateStr = l.officeUse.loanDate || l.createdAt;
+      const monthKey = dateStr ? dateStr.substring(0, 7) : new Date().toISOString().substring(0, 7);
+      const isNewMember = newMemberLoanIds.has(l.id);
+
+      const existing = monthMap.get(monthKey) || { monthKey, monthTotalDisbursed: 0, monthNewMembersCount: 0 };
+      existing.monthTotalDisbursed += l.officeUse.approvedAmount;
+      if (isNewMember) {
+        existing.monthNewMembersCount += 1;
+      }
+      monthMap.set(monthKey, existing);
+    });
+
+    const monthlyDisbursalStats = Array.from(monthMap.values()).map(m => {
+      const target = officerObj.monthlyDisbursedTarget || 0;
+      const rate = officerObj.commissionRateAboveTarget || 0;
+      const incentiveUnit = officerObj.incentivePerNewMember || 0;
+
+      const aboveTargetVolume = Math.max(0, m.monthTotalDisbursed - target);
+      const commissionEarned = aboveTargetVolume * (rate / 100);
+      const incentivesEarned = m.monthNewMembersCount * incentiveUnit;
+      const totalEarned = commissionEarned + incentivesEarned;
+
+      return {
+        ...m,
+        disbursedTarget: target,
+        commissionRate: rate,
+        aboveTargetVolume,
+        commissionEarned,
+        incentivesEarned,
+        totalEarned
+      };
+    }).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+
+    const currentMonthKey = new Date().toISOString().substring(0, 7);
+    const currentMonthStats = monthlyDisbursalStats.find(s => s.monthKey === currentMonthKey) || {
+      monthKey: currentMonthKey,
+      monthTotalDisbursed: 0,
+      monthNewMembersCount: 0,
+      disbursedTarget: officerObj.monthlyDisbursedTarget || 0,
+      commissionRate: officerObj.commissionRateAboveTarget || 0,
+      aboveTargetVolume: 0,
+      commissionEarned: 0,
+      incentivesEarned: 0,
+      totalEarned: 0
+    };
+
+    const newMemberLoansCount = officerDisbursedLoans.filter(l => newMemberLoanIds.has(l.id)).length;
+    const newMemberIncentivesEarned = newMemberLoansCount * (officerObj.incentivePerNewMember || 0);
+
+    return {
+      officerDisbursedLoans,
+      totalDisbursed,
+      newMemberLoansCount,
+      newMemberIncentivesEarned,
+      monthlyDisbursalStats,
+      currentMonthStats,
+      currentMonthKey
+    };
+  };
+
+  const metrics = calculateOfficerMetrics(officer);
+
   const handleApproveCashReceipt = (allowance: OfficerAllowance, isShortage: boolean = false, shortageVal: number = 0, remarks: string = "") => {
     // We pass to App.tsx to handle the full update
     onUpdateAllowanceStatus(officer.id, allowance.id, isShortage ? 'SHORTAGE' : 'ACCEPTED', shortageVal, remarks);
@@ -445,10 +751,11 @@ export default function FieldOfficerHub({
     if (isNaN(amount) || amount <= 0) return;
 
     const processCollection = (locationGeo?: { latitude: number, longitude: number }) => {
+      const selectedDateObj = new Date(collectDate);
       const collectionObj: PaymentCollection = {
         id: `coll-${generateId()}`,
-        date: new Date().toISOString().split("T")[0],
-        monthOfCollection: new Date().toLocaleString('en-US', { month: 'short', year: 'numeric' }),
+        date: collectDate,
+        monthOfCollection: selectedDateObj.toLocaleString('en-US', { month: 'short', year: 'numeric' }),
         receiptNumber: `RCPT-${Math.floor(1000 + Math.random() * 9000)}`,
         amount,
         notes: collectNotes || "Received in Field",
@@ -604,6 +911,7 @@ export default function FieldOfficerHub({
         nic: custNic,
         phone: custPhone || "N/A",
         address: custAddress || "Field Client",
+        memberNumber: existingClientLoan?.applicant.memberNumber || `MEM-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
         idFront: appIdFront || undefined,
         idBack: appIdBack || undefined,
         signedDoc: appSignedDoc || undefined
@@ -945,7 +1253,9 @@ export default function FieldOfficerHub({
             { id: 'NEW_CLIENT', label: lang === "si" ? "නව ණයකරුවන් (Clients)" : "Loan Application", icon: FilePlus },
             { id: 'COLLECT', label: lang === "si" ? "ණය වාරික අයකර ගැනීම්" : "Collect Instalments", icon: TrendingUp },
             { id: 'EXPENSE_REMIT', label: lang === "si" ? "වියදම් සහ කාර්යාලය" : "Expenses & Handover", icon: TrendingDown },
-            { id: 'EOD', label: lang === "si" ? "දෛනික වාර්තාව (EOD)" : "My Daily EOD", icon: Smartphone }
+            { id: 'EOD', label: lang === "si" ? "දෛනික වාර්තාව (EOD)" : "My Daily EOD", icon: Smartphone },
+            { id: 'STATEMENT', label: lang === "si" ? "ලෙජර ප්‍රකාශය" : "Cash Ledger", icon: Calculator, count: ledger.length || undefined },
+            { id: 'COMMISSIONS', label: lang === "si" ? "කොමිස් සහ ඉලක්ක" : "Commissions", icon: Award }
           ].map(t => {
             const Icon = t.icon;
             const isSel = activeTab === t.id;
@@ -961,7 +1271,7 @@ export default function FieldOfficerHub({
               >
                 <Icon className={`w-4 h-4 ${isSel ? "text-indigo-400" : "text-slate-400"}`} />
                 <span>{t.label}</span>
-                {t.count !== undefined && (
+                {t.count !== undefined && t.id !== 'STATEMENT' && (
                   <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center border border-white animate-pulse">
                     {t.count}
                   </span>
@@ -979,6 +1289,8 @@ export default function FieldOfficerHub({
           { id: 'NEW_CLIENT', label: lang === "si" ? "ණය ඇප්" : "Loan App", icon: FilePlus },
           { id: 'COLLECT', label: lang === "si" ? "අයකිරීම්" : "Collect", icon: TrendingUp },
           { id: 'EXPENSE_REMIT', label: lang === "si" ? "කාර්යාල" : "Handover", icon: TrendingDown },
+          { id: 'STATEMENT', label: lang === "si" ? "ලෙජරය" : "Ledger", icon: Calculator },
+          { id: 'COMMISSIONS', label: lang === "si" ? "කොමිස්" : "Comms", icon: Award },
           { id: 'EOD', label: lang === "si" ? "EOD" : "EOD", icon: Smartphone }
         ].map(t => {
           const Icon = t.icon;
@@ -1187,14 +1499,15 @@ export default function FieldOfficerHub({
                     <tr>
                       <th className="p-3">{lang === "si" ? "පාරිභෝගිකයා" : "Customer / Client"}</th>
                       <th className="p-3">{lang === "si" ? "දිනය" : "Date"}</th>
+                      <th className="p-3">{lang === "si" ? "තත්ත්වය" : "Approval Status"}</th>
                       <th className="p-3">{lang === "si" ? "විස්තරය" : "Notes"}</th>
                       <th className="p-3 text-right">{lang === "si" ? "මුදල" : "Amount"}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-750">
+                  <tbody className="divide-y divide-slate-100 text-slate-755">
                     {officerCollections.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="p-6 text-center text-slate-400 font-medium font-mono">
+                        <td colSpan={5} className="p-6 text-center text-slate-400 font-medium font-mono">
                           {lang === "si" ? "අයකරගත් කිසිදු වාරිකයක් නොමැත." : "No current collections logged on this representative profile."}
                         </td>
                       </tr>
@@ -1206,6 +1519,21 @@ export default function FieldOfficerHub({
                             <p className="text-[9px] text-slate-400 font-mono">NIC: {c.loanNic}</p>
                           </td>
                           <td className="p-3 font-mono font-bold text-slate-500">{c.date}</td>
+                          <td className="p-3">
+                            {(() => {
+                              const status = c.loanStatus || "ACTIVE";
+                              const colorClass = 
+                                status === "COMPLETED" ? "bg-emerald-50 text-emerald-700 border-emerald-250" :
+                                status === "ACTIVE" ? "bg-indigo-50 text-indigo-700 border-indigo-250" :
+                                status === "OVERDUE" ? "bg-rose-50 text-rose-700 border-rose-250 font-black animate-pulse" :
+                                "bg-amber-50 text-amber-700 border-amber-250";
+                              return (
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase border font-mono ${colorClass}`}>
+                                  {status}
+                                </span>
+                              );
+                            })()}
+                          </td>
                           <td className="p-3 font-medium text-slate-600">{c.notes || "-"}</td>
                           <td className="p-3 text-right font-black font-mono text-emerald-600">+{formatLKR(c.amount)}</td>
                         </tr>
@@ -1286,6 +1614,18 @@ export default function FieldOfficerHub({
                           ? `දැනට ${custNicCheck.guarantorLoanBorrowerName} ගේ ණයට ඇපකරුවෙකි! (අංකය: ${custNicCheck.guarantorLoanRef})` 
                           : `Registered guarantor for ${custNicCheck.guarantorLoanBorrowerName}! (Ref: ${custNicCheck.guarantorLoanRef})`}
                       </p>
+                    )}
+                    {existingClientLoan && (
+                      <div className="mt-2 p-2 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 text-[10px] font-bold">
+                        <div>
+                          {lang === "si" 
+                            ? "✓ ලියාපදිංචි සාමාජිකයෙක් හමුවිය!" 
+                            : "✓ Registered Member Found!"}
+                        </div>
+                        <div className="font-mono text-[10px] text-teal-650 mt-0.5 uppercase tracking-wide">
+                          {lang === "si" ? "සාමාජික අංකය:" : "Member ID:"} {existingClientLoan.applicant.memberNumber || "N/A"}
+                        </div>
+                      </div>
                     )}
                   </div>
                   <div>
@@ -1509,6 +1849,38 @@ export default function FieldOfficerHub({
               {/* IV. Loan Capital Terms */}
               <div className="space-y-4 pt-2">
                 <h4 className="text-[10px] font-black uppercase text-indigo-700">4. Underwriting Credit Terms & Interest / ණය ගිවිසුම් කොන්දේසි</h4>
+                
+                {/* Preset packages similar to administrative LoanForm */}
+                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-2.5">
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
+                    {lang === "si" ? "ප්‍රධාන පොදු ණය මුදල් පැකේජ (Quick Presets)" : "Quick Capital Presets Packages"}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[10000, 20000, 40000, 50000, 60000, 70000, 80000, 90000, 100000].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => {
+                          setCustRequested(amt.toString());
+                          if (!custInterRate) {
+                            setCustInterRate("25");
+                          }
+                          if (!custDuration) {
+                            setCustDuration("12");
+                          }
+                        }}
+                        className={`px-3 py-2 rounded-xl text-xs font-mono font-bold border transition cursor-pointer select-none ${
+                            Number(custRequested) === amt 
+                            ? "bg-slate-900 border-slate-900 text-white shadow-xs"
+                            : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
+                        }`}
+                      >
+                        {formatLKR(amt)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 rounded-2xl bg-indigo-50/50 border border-indigo-150/40">
                   <div>
                     <label className="text-[9px] font-bold text-indigo-900 uppercase block mb-1">{lang === "si" ? "අනුමත ණය මුදල (LKR) *" : "Approved Loan Capital (LKR) *"}</label>
@@ -1629,7 +2001,7 @@ export default function FieldOfficerHub({
             )}
 
             <form onSubmit={handlePostCollection} className="p-5 rounded-2xl bg-slate-50 border border-slate-100 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-              <div className="md:col-span-4">
+              <div className="md:col-span-3">
                 <label className="text-[9px] font-bold text-slate-505 uppercase block mb-1">
                   {lang === "si" ? "පාරිභෝගිකයා තෝරන්න *" : "Choose Client *"}
                 </label>
@@ -1648,9 +2020,22 @@ export default function FieldOfficerHub({
                 </select>
               </div>
 
-              <div className="md:col-span-3">
+              <div className="md:col-span-2">
                 <label className="text-[9px] font-bold text-slate-505 uppercase block mb-1">
-                  {lang === "si" ? "අයකරගත් වාරිකයේ මුදල (LKR) *" : "Collected Inst Amount (LKR) *"}
+                  {lang === "si" ? "එකතුකළ දිනය *" : "Collection Date *"}
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={collectDate}
+                  onChange={(e) => setCollectDate(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.8 text-xs text-slate-800 outline-none"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-[9px] font-bold text-slate-505 uppercase block mb-1">
+                  {lang === "si" ? "අයකරගත් මුදල (LKR) *" : "Collected Inst Amount (LKR) *"}
                 </label>
                 <input
                   type="number"
@@ -2264,6 +2649,348 @@ export default function FieldOfficerHub({
                     <Printer className="w-4 h-4 text-emerald-400" />
                     {lang === "si" ? "මෙම වාර්තාව මුද්‍රණය කරන්න" : "Print End-Of-Day Slip"}
                   </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* TAB 6: CHRONOLOGICAL RUNNING CASH LEDGER STATEMENT */}
+        {activeTab === 'STATEMENT' && (() => {
+          const sortedLedger = [...ledger];
+          
+          // Summing up inflows and outflows
+          const totalInflowsSum = sortedLedger.filter(e => e.direction === 'IN').reduce((acc, e) => acc + e.amount, 0);
+          const totalOutflowsSum = sortedLedger.filter(e => e.direction === 'OUT').reduce((acc, e) => acc + e.amount, 0);
+
+          return (
+            <div className="space-y-6 animate-fade-in">
+              {/* Summary Bento Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-emerald-800 tracking-wider">
+                      {lang === "si" ? "මුළු ලැබීම් (+)" : "Total Cash Inflow (+)"}
+                    </p>
+                    <p className="text-xl font-black font-mono text-emerald-700 mt-1">
+                      {formatLKR(totalInflowsSum)}
+                    </p>
+                  </div>
+                  <span className="text-xl bg-emerald-100/50 p-2 rounded-xl text-emerald-600 font-bold">+</span>
+                </div>
+
+                <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-rose-800 tracking-wider">
+                      {lang === "si" ? "මුළු ගෙවීම් (-)" : "Total Cash Outflow (-)"}
+                    </p>
+                    <p className="text-xl font-black font-mono text-rose-700 mt-1">
+                      {formatLKR(totalOutflowsSum)}
+                    </p>
+                  </div>
+                  <span className="text-xl bg-rose-100/50 p-2 rounded-xl text-rose-600 font-bold">-</span>
+                </div>
+
+                <div className="p-4 bg-slate-900 rounded-2xl border border-slate-800 text-white flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                      {lang === "si" ? "අතේ ඇති ශේෂය" : "Net Cash in Hand Balance"}
+                    </p>
+                    <p className="text-xl font-black font-mono text-emerald-400 mt-1">
+                      {formatLKR(currentCashInHand)}
+                    </p>
+                  </div>
+                  <span className="text-indigo-400 font-bold">LKR</span>
+                </div>
+              </div>
+
+              {/* Statement Title & Export */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-100 pb-3 gap-2">
+                <div>
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide">
+                    {lang === "si" ? "ධාවන මුදල් ලෙජර ගිණුම් ප්‍රකාශය" : "Chronological Running Cash Ledger"}
+                  </h3>
+                  <p className="text-[10px] text-slate-450 mt-0.5">
+                    {lang === "si" 
+                      ? "අත්මුදල්, එකතු කිරීම් සහ වියදම් මත ගණනය කරන ලද දෛනික ශේෂය" 
+                      : "Continuous step-by-step cash book tracking of all transaction entities"}
+                  </p>
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.print();
+                  }}
+                  className="text-xs bg-slate-100 hover:bg-slate-200 border border-slate-200 py-1.5 px-3 rounded-xl font-bold text-slate-700 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <Printer className="w-3.5 h-3.5 text-slate-600" />
+                  {lang === "si" ? "ප්‍රකාශය මුද්‍රණය කරන්න" : "Print Statement"}
+                </button>
+              </div>
+
+              {/* Ledger Table */}
+              <div className="overflow-x-auto rounded-2xl border border-slate-100 shadow-2xs">
+                <table className="w-full text-left border-collapse bg-white">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-450 uppercase tracking-widest font-mono">
+                      <th className="px-5 py-3">{lang === "si" ? "දිනය" : "Date"}</th>
+                      <th className="px-5 py-3">{lang === "si" ? "ගනුදෙනු විස්තරය" : "Transaction Details"}</th>
+                      <th className="px-5 py-3 text-right">{lang === "si" ? "ලැබීම (+)" : "Inflow (+)"}</th>
+                      <th className="px-5 py-3 text-right">{lang === "si" ? "ගෙවීම (-)" : "Outflow (-)"}</th>
+                      <th className="px-5 py-3 text-right">{lang === "si" ? "ධාවන ශේෂය" : "Running Balance"}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {sortedLedger.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-5 py-10 text-center text-slate-400 font-bold font-sans">
+                          {lang === "si" ? "ලෙජරය සඳහා කිසිදු ගනුදෙනුවක් සොයාගත නොහැකි විය." : "No ledger transactions logged yet."}
+                        </td>
+                      </tr>
+                    ) : (
+                      sortedLedger.map((item, idx) => {
+                        const isIn = item.direction === 'IN';
+                        return (
+                          <tr key={`${item.id}-${idx}`} className="hover:bg-slate-50/50 transition">
+                            <td className="px-5 py-3 font-semibold font-mono text-slate-600 whitespace-nowrap">
+                              {item.date}
+                            </td>
+                            <td className="px-5 py-3 space-y-0.5">
+                              <p className="font-extrabold text-slate-800 font-sans leading-snug">
+                                {item.description}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[8px] font-extrabold px-1.5 py-0.2 rounded-full uppercase leading-none tracking-wider ${
+                                  isIn 
+                                    ? "bg-emerald-50 text-emerald-600 border border-emerald-100" 
+                                    : "bg-rose-50 text-rose-600 border border-rose-100"
+                                }`}>
+                                  {item.type}
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-mono">
+                                  Ref: {item.id.substring(0, 10)}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3 text-right font-bold text-emerald-600 font-mono whitespace-nowrap">
+                              {isIn ? `+${formatLKR(item.amount)}` : "—"}
+                            </td>
+                            <td className="px-5 py-3 text-right font-bold text-rose-600 font-mono whitespace-nowrap">
+                              {!isIn ? `-${formatLKR(item.amount)}` : "—"}
+                            </td>
+                            <td className={`px-5 py-3 text-right font-black font-mono whitespace-nowrap ${
+                              (item.runningBalance || 0) >= 0 ? "text-slate-800" : "text-rose-700"
+                            }`}>
+                              {formatLKR(item.runningBalance || 0)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* TAB 7: COMMISSIONS & TARGETS PERFORMANCE TRACKER */}
+        {activeTab === 'COMMISSIONS' && (() => {
+          const stats = metrics.monthlyDisbursalStats;
+          const overallNewMemberRewards = metrics.newMemberIncentivesEarned;
+          const overallCommissionRewards = stats.reduce((sum, s) => sum + s.commissionEarned, 0);
+          const overallTotalEarnings = overallNewMemberRewards + overallCommissionRewards;
+
+          // Current month target analysis
+          const curMonthStats = metrics.currentMonthStats;
+          const targetPercent = curMonthStats.disbursedTarget > 0 
+            ? Math.min(100, Math.round((curMonthStats.monthTotalDisbursed / curMonthStats.disbursedTarget) * 100))
+            : 0;
+
+          return (
+            <div className="space-y-6 animate-fade-in font-sans text-slate-700">
+              
+              {/* Summary overview cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 flex items-center justify-between">
+                  <div>
+                    <span className="text-[9px] font-bold text-indigo-800 block uppercase tracking-wider">
+                      {lang === "si" ? "මුළු ණය නිකුත් කිරීම්" : "Overall Disbursed Vol"}
+                    </span>
+                    <span className="text-sm font-black font-mono text-indigo-900 tracking-tight block mt-1">
+                      {formatLKR(metrics.totalDisbursed)}
+                    </span>
+                    <p className="text-[9px] text-indigo-500 mt-1 font-semibold">
+                      {metrics.officerDisbursedLoans.length} {lang === "si" ? "ණය ප්‍රමාණයන්" : "loans disbursed"}
+                    </p>
+                  </div>
+                  <Coins className="w-8 h-8 text-indigo-400 opacity-60" />
+                </div>
+
+                <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 flex items-center justify-between">
+                  <div>
+                    <span className="text-[9px] font-bold text-emerald-800 block uppercase tracking-wider">
+                      {lang === "si" ? "ලැබුණු මුළු දිරිදීමනා" : "Overall Earned Rewards"}
+                    </span>
+                    <span className="text-sm font-black font-mono text-emerald-900 tracking-tight block mt-1">
+                      {formatLKR(overallTotalEarnings)}
+                    </span>
+                    <p className="text-[9px] text-emerald-600 mt-1 font-semibold">
+                      {lang === "si" ? "කොමිස් + නව සාමාජික දිරිදීමනා" : "Commissions + New Member Rewards"}
+                    </p>
+                  </div>
+                  <Award className="w-8 h-8 text-emerald-500 opacity-70" />
+                </div>
+
+                <div className="p-4 bg-teal-50/50 rounded-2xl border border-teal-100 flex items-center justify-between">
+                  <div>
+                    <span className="text-[9px] font-bold text-teal-800 block uppercase tracking-wider">
+                      {lang === "si" ? "නව සාමාජික දිරිදීමනා" : "New Member Incentives"}
+                    </span>
+                    <span className="text-sm font-black font-mono text-teal-900 tracking-tight block mt-1">
+                      {formatLKR(overallNewMemberRewards)}
+                    </span>
+                    <p className="text-[9px] text-teal-600 mt-1 font-semibold">
+                      {metrics.newMemberLoansCount} {lang === "si" ? "නව සාමාජිකයින් ලියාපදිංචිය" : "new members referred"}
+                    </p>
+                  </div>
+                  <Users className="w-8 h-8 text-teal-500 opacity-70" />
+                </div>
+              </div>
+
+              {/* Monthly Target Progression Card */}
+              <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200/60 space-y-4 font-sans">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div>
+                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                      {lang === "si" ? `මෙම මාසයේ ප්‍රගතිය (${curMonthStats.monthKey})` : `Current Month Target Progress (${curMonthStats.monthKey})`}
+                    </h3>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      {lang === "si" 
+                        ? "මාසික ණය නිකුත් කිරීමේ ඉලක්කය සහ කොමිස් සීමාවන්" 
+                        : "Track your targets dynamically. Commissions start accumulating above target."}
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold text-slate-400 block uppercase">{lang === "si" ? "ඉලක්කය" : "Target Limit"}</span>
+                    <span className="text-xs font-black font-mono text-slate-700">{formatLKR(curMonthStats.disbursedTarget)}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-[11px] font-bold text-slate-600">
+                    <span>{lang === "si" ? "නිකුත් කල මුළු මුදල" : "Total Volume Disbursed"}</span>
+                    <span className="font-mono text-indigo-700">{formatLKR(curMonthStats.monthTotalDisbursed)} ({targetPercent}% {lang === "si" ? "සම්පූර්ණයි" : "Completed"})</span>
+                  </div>
+                  
+                  {/* Progress Bar container */}
+                  <div className="w-full bg-slate-200 h-3 rounded-full overflow-hidden">
+                    <div 
+                      className="bg-indigo-600 h-full rounded-full transition-all duration-500" 
+                      style={{ width: `${targetPercent}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs">
+                  <div className="p-3 bg-white rounded-xl border border-slate-100 flex items-center justify-between">
+                    <div>
+                      <span className="text-[9px] text-slate-400 font-bold block uppercase">{lang === "si" ? "ඉලක්කයෙන් පසු ප්‍රතිශතය" : "Rate Above Target"}</span>
+                      <span className="font-black font-mono text-slate-800">{curMonthStats.commissionRate}%</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[9px] text-slate-400 font-bold block uppercase text-right">{lang === "si" ? "මාසික කොමිස් ආදායම" : "Month Comm earned"}</span>
+                      <span className="font-black font-mono text-emerald-600 block text-right">{formatLKR(curMonthStats.commissionEarned)}</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-white rounded-xl border border-slate-100 flex items-center justify-between">
+                    <div>
+                      <span className="text-[9px] text-slate-400 font-bold block uppercase">{lang === "si" ? "නව සාමාජිකයින් (මේ මාසයේ)" : "New Members (Month)"}</span>
+                      <span className="font-black font-mono text-slate-800">{curMonthStats.monthNewMembersCount} {lang === "si" ? "ලියාපදිංචි කිරීම්" : "referrals"}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[9px] text-slate-400 font-bold block uppercase text-right">{lang === "si" ? "මාසික දිරිදීමනා ආදායම" : "Month Incentives"}</span>
+                      <span className="font-black font-mono text-emerald-600 block text-right">{formatLKR(curMonthStats.incentivesEarned)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Month-by-month Table list */}
+              <div className="space-y-3 font-sans">
+                <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider block">
+                  {lang === "si" ? "මාසික ඉතිහාසය සහ ඉපැයීම් ප්‍රකාශය" : "Historical Monthly Earnings & Comm Statement"}
+                </h3>
+
+                <div className="overflow-x-auto rounded-2xl border border-slate-100 shadow-2xs">
+                  <table className="w-full text-left border-collapse bg-white">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">
+                        <th className="px-5 py-3">{lang === "si" ? "මාසය" : "Month"}</th>
+                        <th className="px-5 py-3 text-right">{lang === "si" ? "නිකුත් කිරීම් (Disbursed)" : "Total Disbursed"}</th>
+                        <th className="px-5 py-3 text-right">{lang === "si" ? "නව සාමාජිකයින්" : "New Members"}</th>
+                        <th className="px-5 py-3 text-right">{lang === "si" ? "ඉලක්කය (Target)" : "Target Limit"}</th>
+                        <th className="px-5 py-3 text-right">{lang === "si" ? "කොමිස් ආදායම" : "Comm Earned"}</th>
+                        <th className="px-5 py-3 text-right">{lang === "si" ? "දිරිදීමනා" : "New Member Incentives"}</th>
+                        <th className="px-5 py-3 text-right">{lang === "si" ? "මුළු උපයාගත් මුදල" : "Total Earnings"}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs">
+                      {stats.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="px-5 py-10 text-center text-slate-400 font-bold font-sans">
+                            {lang === "si" ? "මුදල් ගෙවීම් හෝ උපයාගැනීම් වාර්තා වී නොමැත." : "No disbursements logged yet to calculate commissions."}
+                          </td>
+                        </tr>
+                      ) : (
+                        stats.map((s, sIdx) => (
+                          <tr key={`${s.monthKey}-${sIdx}`} className="hover:bg-slate-50/50 transition font-mono">
+                            <td className="px-5 py-3 font-bold text-slate-700 font-sans">
+                              {s.monthKey}
+                            </td>
+                            <td className="px-5 py-3 text-right font-semibold text-slate-800">
+                              {formatLKR(s.monthTotalDisbursed)}
+                            </td>
+                            <td className="px-5 py-3 text-right text-slate-600 font-semibold font-sans">
+                              {s.monthNewMembersCount}
+                            </td>
+                            <td className="px-5 py-3 text-right text-slate-500">
+                              {formatLKR(s.disbursedTarget)}
+                            </td>
+                            <td className="px-5 py-3 text-right text-emerald-600 font-bold">
+                              {formatLKR(s.commissionEarned)}
+                              {s.aboveTargetVolume > 0 && (
+                                <span className="text-[8px] font-bold block text-slate-400 font-sans mt-0.5">
+                                  ({s.commissionRate}% {lang === "si" ? "ඉලක්කයෙන් පසු" : "above target"})
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-right text-emerald-600 font-bold font-sans">
+                              {formatLKR(s.incentivesEarned)}
+                            </td>
+                            <td className="px-5 py-3 text-right text-indigo-700 font-extrabold text-sm">
+                              {formatLKR(s.totalEarned)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Helpful notes */}
+                <div className="bg-amber-50/40 p-4 rounded-2xl border border-amber-100 text-slate-500 text-[10px] leading-relaxed">
+                  <p className="font-extrabold text-amber-800 uppercase mb-1">
+                    {lang === "si" ? "වැදගත් සටහන:" : "COMMISSIONS RULE BOOK & AUDITING NOTES:"}
+                  </p>
+                  <p>
+                    {lang === "si"
+                      ? "1. ණය නිකුත් කිරීමේ කොමිස් ගණනය කරනු ලබන්නේ පද්ධතිය තුළ නිල වශයෙන් නිකුත් කර ඇති (Disbursed) මාසික ණය ප්‍රමාණයන් පදනම් කරගෙනය. 2. නව සාමාජික දිරිදීමනා ගෙවනු ලබන්නේ අදාළ ග්‍රාහකයාගේ ප්‍රථම ණය නිකුත් කිරීමේදී පමණි. මේ පිළිබඳ ගැටළු සඳහා කළමනාකාරීත්වය අමතන්න."
+                      : "1. Disbursal volume calculations are driven explicitly by disbursed loan entries. Pending loan registrations or approved but un-disbursed entries are excluded. 2. New member referrals are evaluated on unique national identity records (NIC) in absolute sequential system logging. If you dispute any calculation, please query with the Head Registry Desk."}
+                  </p>
                 </div>
               </div>
             </div>

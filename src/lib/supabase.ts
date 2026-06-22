@@ -151,9 +151,12 @@ create table if not exists public.field_officers (
     synced_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- Backward compatibility columns (in case tables are already created)
+-- Backward compatibility columns (CRITICAL: If you created tables earlier, run these lines!)
 alter table public.field_officers add column if not exists position text default 'FIELD_OFFICER';
 alter table public.field_officers add column if not exists can_approve_loans boolean default false;
+
+-- Reload the schema cache so PostgREST immediately recognizes new columns
+notify pgrst, 'reload schema';
 
 -- Enable Row Level Security (RLS) on field_officers
 alter table public.field_officers enable row level security;
