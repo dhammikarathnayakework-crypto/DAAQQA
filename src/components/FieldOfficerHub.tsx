@@ -307,7 +307,10 @@ export default function FieldOfficerHub({
   const [confirmingTransfer, setConfirmingTransfer] = useState<OfficerRepTransfer | null>(null);
 
   // Installment collection states
+  const [collectSearchQuery, setCollectSearchQuery] = useState<string>("");
   const [selectedLoanId, setSelectedLoanId] = useState<string>("");
+  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState<boolean>(false);
+  const [clientSearchText, setClientSearchText] = useState<string>("");
   const [collectAmount, setCollectAmount] = useState<string>("");
   const [collectNotes, setCollectNotes] = useState<string>("");
   const [collectDate, setCollectDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
@@ -1971,163 +1974,314 @@ export default function FieldOfficerHub({
         )}
 
         {/* TAB 3: LOAN REPAYMENT / COLLECTIONS REGISTER IN FIELD */}
-        {activeTab === 'COLLECT' && (
-          <div className="space-y-6">
-            <div className="border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-indigo-505" />
-                {lang === "si" ? "දෛනික ණය වාරික එකතු කිරීමේ පෝරමය" : "Repayment & collection logger"}
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                {lang === "si" 
-                  ? "පාරිභෝගිකයින්ගෙන් අතට එකතු කරගන්නා ණය වාරික, සටහන් සමඟ වහාම මෙතැනින් ඇතුලත් කරන්න." 
-                  : "Post new daily collection cash values directly. Select customer and specify collected amount."}
-              </p>
-            </div>
+        {activeTab === 'COLLECT' && (() => {
+          const activeLoans = loans.filter(l => l.status === "ACTIVE");
+          const filteredLoans = activeLoans.filter(l => {
+            if (!collectSearchQuery) return true;
+            const q = collectSearchQuery.toLowerCase().trim();
+            return (
+              l.applicant.fullName.toLowerCase().includes(q) ||
+              l.applicant.nic.toLowerCase().includes(q) ||
+              (l.applicant.memberNumber && l.applicant.memberNumber.toLowerCase().includes(q)) ||
+              (l.officeUse.applicationNumber && l.officeUse.applicationNumber.toLowerCase().includes(q)) ||
+              (l.officeUse.loanNumber && l.officeUse.loanNumber.toLowerCase().includes(q)) ||
+              (l.applicant.phone && l.applicant.phone.toLowerCase().includes(q)) ||
+              l.id.toLowerCase().includes(q)
+            );
+          });
 
-            {lastCollectionReceipt && (
-              <div className="p-4 bg-emerald-50 border border-emerald-250 text-emerald-800 rounded-2xl text-xs font-bold font-sans flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                <span className="flex items-center gap-2">✓ {lastCollectionReceipt.msg}</span>
-                <a 
-                  href={`https://wa.me/${lastCollectionReceipt.targetPhone.replace(/^0/, '+94')}?text=${lastCollectionReceipt.waText}`}
-                  target="_blank"
-                  rel="noopener noreferrer" 
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-sm transition-all"
-                >
-                  <TrendingUp className="w-3.5 h-3.5" />
-                  {lang === "si" ? "WhatsApp හරහා රිසිට් එක යවන්න" : "Send e-Receipt via WhatsApp"}
-                </a>
-              </div>
-            )}
+          const dropdownFilteredLoans = activeLoans.filter(l => {
+            if (!clientSearchText) return true;
+            const q = clientSearchText.toLowerCase().trim();
+            return (
+              l.applicant.fullName.toLowerCase().includes(q) ||
+              l.applicant.nic.toLowerCase().includes(q) ||
+              (l.applicant.memberNumber && l.applicant.memberNumber.toLowerCase().includes(q)) ||
+              (l.applicant.phone && l.applicant.phone.toLowerCase().includes(q)) ||
+              (l.officeUse.loanNumber && l.officeUse.loanNumber.toLowerCase().includes(q)) ||
+              l.id.toLowerCase().includes(q)
+            );
+          });
 
-            <form onSubmit={handlePostCollection} className="p-5 rounded-2xl bg-slate-50 border border-slate-100 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-              <div className="md:col-span-3">
-                <label className="text-[9px] font-bold text-slate-505 uppercase block mb-1">
-                  {lang === "si" ? "පාරිභෝගිකයා තෝරන්න *" : "Choose Client *"}
-                </label>
-                <select
-                  required
-                  value={selectedLoanId}
-                  onChange={(e) => setSelectedLoanId(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-810 font-bold outline-none"
-                >
-                  <option value="">{lang === "si" ? "-- තෝරන්න (Select Customer) --" : "-- Select Active Loan --"}</option>
-                  {loans.filter(l => l.status === "ACTIVE").map(l => (
-                    <option key={l.id} value={l.id}>
-                      {l.applicant.fullName} ({l.applicant.nic})
-                    </option>
-                  ))}
-                </select>
-              </div>
+          return (
+            <div className="space-y-6">
+              <div className="border-b border-slate-100 pb-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-indigo-505" />
+                    {lang === "si" ? "දෛනික ණය වාරික එකතු කිරීමේ පෝරමය" : "Repayment & collection logger"}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {lang === "si" 
+                      ? "පාරිභෝගිකයින්ගෙන් අතට එකතු කරගන්නා ණය වාරික, සටහන් සමඟ වහාම මෙතැනින් ඇතුලත් කරන්න." 
+                      : "Post new daily collection cash values directly. Select customer and specify collected amount."}
+                  </p>
+                </div>
 
-              <div className="md:col-span-2">
-                <label className="text-[9px] font-bold text-slate-505 uppercase block mb-1">
-                  {lang === "si" ? "එකතුකළ දිනය *" : "Collection Date *"}
-                </label>
-                <input
-                  type="date"
-                  required
-                  value={collectDate}
-                  onChange={(e) => setCollectDate(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.8 text-xs text-slate-800 outline-none"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-[9px] font-bold text-slate-505 uppercase block mb-1">
-                  {lang === "si" ? "අයකරගත් මුදල (LKR) *" : "Collected Inst Amount (LKR) *"}
-                </label>
-                <input
-                  type="number"
-                  required
-                  value={collectAmount}
-                  onChange={(e) => setCollectAmount(e.target.value)}
-                  placeholder="e.g. 1500"
-                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.8 text-xs font-black font-mono text-slate-800 outline-none"
-                />
+                {/* Live Search Field at the Top bar */}
+                <div className="relative w-full sm:w-72">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+                    <Search className="w-4 h-4" />
+                  </span>
+                  <input
+                    type="text"
+                    value={collectSearchQuery}
+                    onChange={(e) => setCollectSearchQuery(e.target.value)}
+                    placeholder={lang === "si" ? "ID, නම හෝ සාමාජික අංකයෙන් සොයන්න..." : "Search ID, NIC, Member No, Name..."}
+                    className="w-full bg-white border border-slate-200/80 rounded-xl pl-9 pr-8 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold"
+                  />
+                  {collectSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setCollectSearchQuery("")}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-xs font-bold text-slate-400 hover:text-slate-600"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="md:col-span-3">
-                <label className="text-[9px] font-bold text-slate-505 uppercase block mb-1">
-                  {lang === "si" ? "සටහන් / විස්තර (Notes)" : "Notes or remarks"}
-                </label>
-                <input
-                  type="text"
-                  value={collectNotes}
-                  onChange={(e) => setCollectNotes(e.target.value)}
-                  placeholder="e.g. Week 4 paid"
-                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none"
-                />
-              </div>
+              {lastCollectionReceipt && (
+                <div className="p-4 bg-emerald-50 border border-emerald-250 text-emerald-800 rounded-2xl text-xs font-bold font-sans flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                  <span className="flex items-center gap-2">✓ {lastCollectionReceipt.msg}</span>
+                  <a 
+                    href={`https://wa.me/${lastCollectionReceipt.targetPhone.replace(/^0/, '+94')}?text=${lastCollectionReceipt.waText}`}
+                    target="_blank"
+                    rel="noopener noreferrer" 
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-sm transition-all"
+                  >
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    {lang === "si" ? "WhatsApp හරහා රිසිට් එක යවන්න" : "Send e-Receipt via WhatsApp"}
+                  </a>
+                </div>
+              )}
 
-              <div className="md:col-span-2">
-                <button
-                  type="submit"
-                  className="w-full bg-teal-600 hover:bg-teal-500 text-white font-black py-2 rounded-xl text-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
-                >
-                  <Plus className="w-4 h-4" />
-                  {lang === "si" ? "තුලනය සටහන් කරන්න" : "Post Cash"}
-                </button>
-              </div>
-            </form>
-
-            {/* Active outstanding status files list on representative's desk */}
-            <div>
-              <h4 className="text-xs font-black uppercase text-slate-800 scroll-mb-1 tracking-wider mb-3">
-                {lang === "si" ? "ක්‍රියාකාරී ණය ගිණුම් පිළිබඳ සාරාංශය" : "Quick active loans balance board"}
-              </h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {loans.filter(l => l.status === "ACTIVE").map(l => {
-                  const totalPaid = l.collections.reduce((sum, c) => sum + c.amount, 0);
-                  const totalWithInt = l.officeUse.approvedAmount + (l.officeUse.approvedAmount * (l.officeUse.interestRate / 100));
-                  const remOutstanding = totalWithInt - totalPaid;
-                  return (
-                    <div key={l.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col justify-between space-y-3">
-                      <div>
-                        <div className="flex justify-between items-start gap-1">
-                          <h5 className="font-bold text-xs text-slate-800">{l.applicant.fullName}</h5>
-                          <span className="text-[8px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded uppercase">
-                            {formatLKR(l.officeUse.monthlyInstallment)}/inst
-                          </span>
+              {/* Form block with search results */}
+              <form onSubmit={handlePostCollection} className="p-5 rounded-2xl bg-indigo-50/30 border border-indigo-100 grid grid-cols-1 md:grid-cols-12 gap-4 items-end relative">
+                <div className="md:col-span-3 relative">
+                  <label className="text-[9px] font-bold text-slate-505 uppercase block mb-1">
+                    {lang === "si" ? "පාරිභෝගිකයා තෝරන්න *" : "Choose Client *"}
+                  </label>
+                  
+                  <div className="relative">
+                    <input type="hidden" required value={selectedLoanId} />
+                    <input
+                      type="text"
+                      className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-xs text-slate-810 font-bold outline-none ring-1 ring-indigo-100 placeholder-slate-400"
+                      placeholder={
+                        selectedLoanId 
+                          ? `${activeLoans.find(l => l.id === selectedLoanId)?.applicant.fullName || ""} (${activeLoans.find(l => l.id === selectedLoanId)?.applicant.nic || ""})`
+                          : (lang === "si" ? "-- තෝරන්න (Type to search...) --" : "-- Search Active Loan... --")
+                      }
+                      value={clientSearchText}
+                      onChange={(e) => {
+                        setClientSearchText(e.target.value);
+                        if (!isClientDropdownOpen) setIsClientDropdownOpen(true);
+                        // If user types, we probably want to clear the selected client to force them to pick again
+                        if (selectedLoanId && e.target.value) setSelectedLoanId("");
+                      }}
+                      onFocus={() => setIsClientDropdownOpen(true)}
+                    />
+                    
+                    {isClientDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-10"
+                          onClick={() => {
+                            setIsClientDropdownOpen(false);
+                            setClientSearchText("");
+                          }}
+                        />
+                        <div className="absolute top-full left-0 mt-1 w-full sm:w-[350px] bg-white border border-slate-200 shadow-xl rounded-xl z-20 max-h-60 overflow-y-auto">
+                          {dropdownFilteredLoans.length === 0 ? (
+                            <div className="p-3 text-xs text-slate-400 text-center font-bold">No matching active loans found</div>
+                          ) : (
+                            dropdownFilteredLoans.map(l => (
+                              <div
+                                key={l.id}
+                                className={`p-3 cursor-pointer border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors ${selectedLoanId === l.id ? "bg-indigo-50/50" : ""}`}
+                                onClick={() => {
+                                  setSelectedLoanId(l.id);
+                                  setIsClientDropdownOpen(false);
+                                  setClientSearchText("");
+                                }}
+                              >
+                                <div className="flex justify-between items-start">
+                                  <div className={`text-xs font-bold ${selectedLoanId === l.id ? "text-indigo-700" : "text-slate-700"}`}>
+                                    {l.applicant.fullName}
+                                  </div>
+                                  <div className="text-[9px] font-black bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">
+                                    {l.officeUse.loanNumber || "N/A"}
+                                  </div>
+                                </div>
+                                <div className="text-[10px] text-slate-400 font-mono flex items-center gap-2 mt-1">
+                                  <span>NIC: {l.applicant.nic}</span>
+                                  {l.applicant.memberNumber && <span>| Mem: {l.applicant.memberNumber}</span>}
+                                </div>
+                              </div>
+                            ))
+                          )}
                         </div>
-                        <p className="text-[9px] text-slate-400 font-mono mt-0.5">NIC: {l.applicant.nic} | Phone: {l.applicant.phone}</p>
-                      </div>
+                      </>
+                    )}
+                  </div>
+                </div>
 
-                      <div className="space-y-1 text-[10px]">
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Total Contract Value:</span>
-                          <span className="font-mono text-slate-700 font-bold">{formatLKR(totalWithInt)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Total Collections:</span>
-                          <span className="font-mono text-emerald-600 font-bold">{formatLKR(totalPaid)}</span>
-                        </div>
-                        <div className="flex justify-between pt-1 border-t border-slate-200">
-                          <span className="text-slate-550 font-bold">Outstanding:</span>
-                          <span className="font-mono text-slate-900 font-extrabold">{formatLKR(remOutstanding)}</span>
-                        </div>
-                      </div>
+                <div className="md:col-span-2">
+                  <label className="text-[9px] font-bold text-slate-505 uppercase block mb-1">
+                    {lang === "si" ? "එකතුකළ දිනය *" : "Collection Date *"}
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={collectDate}
+                    onChange={(e) => setCollectDate(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.8 text-xs text-slate-800 outline-none"
+                  />
+                </div>
 
-                      {/* Choose Button */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedLoanId(l.id);
-                          // Auto scroll to form
-                          window.scrollTo({ top: 300, behavior: 'smooth' });
-                        }}
-                        className="text-center w-full bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold py-1.5 rounded-xl text-[10px]"
-                      >
-                        {lang === "si" ? "මෙම ණයකරු තෝරන්න" : "Select this Client"}
-                      </button>
+                <div className="md:col-span-2">
+                  <label className="text-[9px] font-bold text-slate-505 uppercase block mb-1">
+                    {lang === "si" ? "අයකරගත් මුදල (LKR) *" : "Collected Inst Amount (LKR) *"}
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    value={collectAmount}
+                    onChange={(e) => setCollectAmount(e.target.value)}
+                    placeholder="e.g. 1500"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.8 text-xs font-black font-mono text-slate-800 outline-none"
+                  />
+                </div>
+
+                <div className="md:col-span-3">
+                  <label className="text-[9px] font-bold text-slate-505 uppercase block mb-1">
+                    {lang === "si" ? "සටහන් / විස්තර (Notes)" : "Notes or remarks"}
+                  </label>
+                  <input
+                    type="text"
+                    value={collectNotes}
+                    onChange={(e) => setCollectNotes(e.target.value)}
+                    placeholder="e.g. Week 4 paid"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <button
+                    type="submit"
+                    className="w-full bg-teal-600 hover:bg-teal-500 text-white font-black py-2 rounded-xl text-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                  >
+                    <Plus className="w-4 h-4" />
+                    {lang === "si" ? "තුලනය සටහන් කරන්න" : "Post Cash"}
+                  </button>
+                </div>
+              </form>
+
+              {/* Active outstanding status files list on representative's desk */}
+              <div>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-3">
+                  <h4 className="text-xs font-black uppercase text-slate-800 scroll-mb-1 tracking-wider">
+                    {lang === "si" ? "ක්‍රියාකාරී ණය ගිණුම් පිළිබඳ සාරාංශය" : "Quick active loans balance board"}
+                  </h4>
+                  {collectSearchQuery && (
+                    <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-150 px-2 py-0.5 rounded-full">
+                      Showing {filteredLoans.length} of {activeLoans.length} active loans
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredLoans.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-slate-200/60 font-medium md:col-span-2 animate-fade-in">
+                      {lang === "si" ? "කිසිදු සක්‍රීය ණයක් සොයාගත නොහැකි විය." : "No matching active loans found."}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
+                  ) : (
+                    filteredLoans.map(l => {
+                      const totalPaid = l.collections.reduce((sum, c) => sum + c.amount, 0);
+                      const totalWithInt = l.officeUse.approvedAmount + (l.officeUse.approvedAmount * (l.officeUse.interestRate / 100));
+                      const remOutstanding = totalWithInt - totalPaid;
+                      const isSelected = selectedLoanId === l.id;
 
-          </div>
-        )}
+                      return (
+                        <div 
+                          key={l.id} 
+                          className={`p-4 rounded-2xl flex flex-col justify-between space-y-3 transition-all duration-300 ${
+                            isSelected 
+                              ? "bg-indigo-50/70 border-2 border-indigo-400 shadow-sm" 
+                              : "bg-slate-50 border border-slate-100 hover:border-slate-310"
+                          }`}
+                        >
+                          <div>
+                            <div className="flex justify-between items-start gap-1">
+                              <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+                                {l.applicant.fullName}
+                                {isSelected && (
+                                  <span className="text-[8px] bg-indigo-600 text-white font-extrabold px-1.5 py-0.5 rounded uppercase">
+                                    {lang === "si" ? "තෝරාගෙන ඇත" : "Selected"}
+                                  </span>
+                                )}
+                              </h5>
+                              <span className="text-[8px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded uppercase">
+                                {formatLKR(l.officeUse.monthlyInstallment)}/inst
+                              </span>
+                            </div>
+                            <p className="text-[9px] text-slate-400 font-mono mt-0.5">
+                              NIC: {l.applicant.nic} 
+                              {l.applicant.memberNumber && ` | Mem-No: ${l.applicant.memberNumber}`}
+                              {l.officeUse.loanNumber && ` | Loan-No: ${l.officeUse.loanNumber}`}
+                              {l.applicant.phone && ` | Phone: ${l.applicant.phone}`}
+                            </p>
+                          </div>
+
+                          <div className="space-y-1 text-[10px]">
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">{lang === "si" ? "මුළු ගිවිසුම් වටිනාකම:" : "Total Contract Value:"}</span>
+                              <span className="font-mono text-slate-705 font-bold">{formatLKR(totalWithInt)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">{lang === "si" ? "මුළු අයකර ගැනීම්:" : "Total Collections:"}</span>
+                              <span className="font-mono text-emerald-600 font-bold">{formatLKR(totalPaid)}</span>
+                            </div>
+                            <div className="flex justify-between pt-1 border-t border-slate-200">
+                              <span className="text-slate-550 font-bold">{lang === "si" ? "ගෙවීමට ඉතිරි මුදල:" : "Outstanding:"}</span>
+                              <span className="font-mono text-slate-900 font-extrabold">{formatLKR(remOutstanding)}</span>
+                            </div>
+                          </div>
+
+                          {/* Choose Button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedLoanId(l.id);
+                              // Auto scroll to form softly
+                              const formEl = document.querySelector('form');
+                              if (formEl) {
+                                formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              }
+                            }}
+                            className={`text-center w-full font-bold py-1.5 rounded-xl text-[10px] transition-all cursor-pointer ${
+                              isSelected
+                                ? "bg-indigo-600 text-white shadow-sm"
+                                : "bg-white hover:bg-slate-100 border border-slate-200 text-slate-705"
+                            }`}
+                          >
+                            {isSelected 
+                              ? (lang === "si" ? "පාරිභෝගිකයා තෝරාගෙන ඇත" : "Client Selected ✓")
+                              : (lang === "si" ? "මෙම ණයකරු තෝරන්න" : "Select this Client")
+                            }
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+            </div>
+          );
+        })()}
 
         {/* TAB 4: FIELD EXPENSES AND HANDING BACK CASH TO OFFICE */}
         {activeTab === 'EXPENSE_REMIT' && (
