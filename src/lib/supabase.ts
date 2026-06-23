@@ -141,12 +141,16 @@ create table if not exists public.field_officers (
     vehicle_number text,
     joined_date text,
     target_collection numeric,
+    monthly_disbursed_target numeric,
+    commission_rate_above_target numeric,
+    incentive_per_new_member numeric,
     status text default 'ACTIVE',
     position text default 'FIELD_OFFICER',
     can_approve_loans boolean default false,
     expenses jsonb default '[]'::jsonb,
     allowances jsonb default '[]'::jsonb,
     remittances jsonb default '[]'::jsonb,
+    rep_transfers jsonb default '[]'::jsonb,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null,
     synced_at timestamp with time zone default timezone('utc'::text, now())
 );
@@ -154,6 +158,12 @@ create table if not exists public.field_officers (
 -- Backward compatibility columns (CRITICAL: If you created tables earlier, run these lines!)
 alter table public.field_officers add column if not exists position text default 'FIELD_OFFICER';
 alter table public.field_officers add column if not exists can_approve_loans boolean default false;
+alter table public.field_officers add column if not exists monthly_disbursed_target numeric;
+alter table public.field_officers add column if not exists commission_rate_above_target numeric;
+alter table public.field_officers add column if not exists incentive_per_new_member numeric;
+alter table public.field_officers add column if not exists rep_transfers jsonb default '[]'::jsonb;
+alter table public.field_officers add column if not exists id_front text;
+alter table public.field_officers add column if not exists id_back text;
 
 -- Reload the schema cache so PostgREST immediately recognizes new columns
 notify pgrst, 'reload schema';
@@ -270,6 +280,12 @@ function toDbFieldOfficer(officer: FieldOfficer) {
     created_at: officer.createdAt,
     position: officer.position || 'FIELD_OFFICER',
     can_approve_loans: officer.canApproveLoans || false,
+    monthly_disbursed_target: officer.monthlyDisbursedTarget || null,
+    commission_rate_above_target: officer.commissionRateAboveTarget || null,
+    incentive_per_new_member: officer.incentivePerNewMember || null,
+    rep_transfers: officer.repTransfers || [],
+    id_front: officer.idFront || null,
+    id_back: officer.idBack || null,
   };
 }
 
@@ -289,9 +305,15 @@ function toAppFieldOfficer(row: any): FieldOfficer {
     expenses: typeof row.expenses === 'string' ? JSON.parse(row.expenses) : (row.expenses || []),
     allowances: typeof row.allowances === 'string' ? JSON.parse(row.allowances) : (row.allowances || []),
     remittances: typeof row.remittances === 'string' ? JSON.parse(row.remittances) : (row.remittances || []),
+    repTransfers: typeof row.rep_transfers === 'string' ? JSON.parse(row.rep_transfers) : (row.rep_transfers || []),
     createdAt: row.created_at || new Date().toISOString(),
     position: row.position || 'FIELD_OFFICER',
     canApproveLoans: row.can_approve_loans !== undefined ? !!row.can_approve_loans : false,
+    monthlyDisbursedTarget: row.monthly_disbursed_target ? parseFloat(row.monthly_disbursed_target) : undefined,
+    commissionRateAboveTarget: row.commission_rate_above_target ? parseFloat(row.commission_rate_above_target) : undefined,
+    incentivePerNewMember: row.incentive_per_new_member ? parseFloat(row.incentive_per_new_member) : undefined,
+    idFront: row.id_front || undefined,
+    idBack: row.id_back || undefined,
   };
 }
 
@@ -370,7 +392,7 @@ function dataURLtoBlob(dataurl: string): Blob {
 }
 
 // Helper to upload base64 images to Supabase Storage bucket
-async function uploadBase64Image(client: any, base64: string, path: string): Promise<string> {
+export async function uploadBase64Image(client: any, base64: string, path: string): Promise<string> {
   if (!base64 || typeof base64 !== "string") return "";
   if (base64.startsWith("http://") || base64.startsWith("https://")) {
     return base64; // already uploaded, return as-is
@@ -550,7 +572,42 @@ export async function sendFieldOfficerToSupabase(officer: FieldOfficer): Promise
   const client = getClient();
   if (!client) throw new Error("Supabase client is not configured");
 
-  const dModel = toDbFieldOfficer(officer);
+  // Clone to avoid side effects
+  const updatedOfficer = JSON.parse(JSON.stringify(officer)) as FieldOfficer;
+
+  // 1. Upload Field Officer Identity Photos
+  if (updatedOfficer.idFront) {
+    updatedOfficer.idFront = await uploadBase64Image(
+      client,
+      updatedOfficer.idFront,
+      `officers/${officer.id}/idFront.jpg`
+    );
+  }
+  if (updatedOfficer.idBack) {
+    updatedOfficer.idBack = await uploadBase64Image(
+      client,
+      updatedOfficer.idBack,
+      `officers/${officer.id}/idBack.jpg`
+    );
+  }
+
+  // 2. Upload Expense Bill Images
+  if (updatedOfficer.expenses && updatedOfficer.expenses.length > 0) {
+    updatedOfficer.expenses = await Promise.all(
+      updatedOfficer.expenses.map(async (exp) => {
+        if (exp.billImage) {
+          exp.billImage = await uploadBase64Image(
+            client,
+            exp.billImage,
+            `officers/${officer.id}/expenses/${exp.id}.jpg`
+          );
+        }
+        return exp;
+      })
+    );
+  }
+
+  const dModel = toDbFieldOfficer(updatedOfficer);
   const { error } = await client
     .from("field_officers")
     .upsert(dModel, { onConflict: "id" });

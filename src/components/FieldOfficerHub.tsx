@@ -31,6 +31,8 @@ import { FieldOfficer, Loan, OfficerAllowance, OfficerExpense, OfficerRemittance
 import { formatLKR, generateId, checkNicStatus } from "../utils";
 import { translations, Language } from "../translations";
 
+import imageCompression from 'browser-image-compression';
+
 interface ImageUploadFieldProps {
   label: string;
   subLabel?: string;
@@ -42,51 +44,41 @@ interface ImageUploadFieldProps {
 
 function ImageUploadField({ label, subLabel, value, onChange, onClear, lang }: ImageUploadFieldProps) {
   const [dragActive, setDragActive] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
   const fileInputId = React.useId();
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      compressAndLoad(e.target.files[0]);
+      await compressAndLoad(e.target.files[0]);
     }
   };
 
-  const compressAndLoad = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 800;
-        const MAX_HEIGHT = 800;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL("image/jpeg", 0.7);
-          onChange(compressed);
-        } else {
-          onChange(e.target?.result as string);
-        }
+  const compressAndLoad = async (file: File) => {
+    setIsCompressing(true);
+    try {
+      const options = {
+        maxSizeMB: 0.1, // around 100KB
+        maxWidthOrHeight: 1200,
+        useWebWorker: true,
+        fileType: "image/jpeg"
       };
-      img.src = e.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+      const compressedFile = await imageCompression(file, options);
+      
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        onChange(e.target?.result as string);
+        setIsCompressing(false);
+      };
+      reader.readAsDataURL(compressedFile);
+    } catch (error) {
+      console.error("Image compression error:", error);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+         onChange(e.target?.result as string);
+         setIsCompressing(false);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -170,13 +162,22 @@ function ImageUploadField({ label, subLabel, value, onChange, onClear, lang }: I
             onChange={handleFileChange}
             className="hidden"
           />
-          <Upload className="w-5 h-5 text-slate-400 mb-1" />
-          <span className="text-[10px] font-extrabold text-slate-650">
-            {lang === "si" ? "පින්තූරය තෝරන්න" : "Choose Image"}
-          </span>
-          <span className="text-[8px] text-slate-400 mt-0.5">
-            {lang === "si" ? "හෝ ඇදගෙන එන්න" : "or drag & drop"}
-          </span>
+          {isCompressing ? (
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-[10px] font-bold text-slate-650 block">Compressing...</span>
+            </div>
+          ) : (
+            <>
+              <Upload className="w-5 h-5 text-slate-400 mb-1" />
+              <span className="text-[10px] font-extrabold text-slate-650">
+                {lang === "si" ? "පින්තූරය තෝරන්න" : "Choose Image"}
+              </span>
+              <span className="text-[8px] text-slate-400 mt-0.5">
+                {lang === "si" ? "හෝ ඇදගෙන එන්න" : "or drag & drop"}
+              </span>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -324,46 +325,36 @@ export default function FieldOfficerHub({
   const [expAmount, setExpAmount] = useState("");
   const [expDesc, setExpDesc] = useState("");
   const [expBillImage, setExpBillImage] = useState<string>("");
+  const [isCompressingBill, setIsCompressingBill] = useState(false);
 
-  const handleBillFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBillFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
+      setIsCompressingBill(true);
       const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = (re) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          const MAX_WIDTH = 600;
-          const MAX_HEIGHT = 600;
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext("2d");
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, width, height);
-            const compressed = canvas.toDataURL("image/jpeg", 0.6);
-            setExpBillImage(compressed);
-          } else {
-            setExpBillImage(re.target?.result as string);
-          }
+      try {
+        const imageCompression = (await import('browser-image-compression')).default;
+        const options = {
+          maxSizeMB: 0.1,
+          maxWidthOrHeight: 1200,
+          useWebWorker: true,
+          fileType: "image/jpeg"
         };
-        img.src = re.target?.result as string;
-      };
-      reader.readAsDataURL(file);
+        const compressedFile = await imageCompression(file, options);
+        const reader = new FileReader();
+        reader.onload = (re) => {
+          setExpBillImage(re.target?.result as string);
+          setIsCompressingBill(false);
+        };
+        reader.readAsDataURL(compressedFile);
+      } catch (err) {
+        console.error("Image compression error:", err);
+        const reader = new FileReader();
+        reader.onload = (re) => {
+          setExpBillImage(re.target?.result as string);
+          setIsCompressingBill(false);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
   
@@ -904,6 +895,9 @@ export default function FieldOfficerHub({
         }
       }
     });
+
+    const currentYear = new Date().getFullYear();
+    const nextSequenceNumber = (loans.length + 1).toString().padStart(4, '0');
     const nextAppNumber = `SCL-${maxNum + 1}`;
 
     const newLoanObj: Loan = {
@@ -914,7 +908,7 @@ export default function FieldOfficerHub({
         nic: custNic,
         phone: custPhone || "N/A",
         address: custAddress || "Field Client",
-        memberNumber: existingClientLoan?.applicant.memberNumber || `MEM-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+        memberNumber: existingClientLoan?.applicant.memberNumber || `MEM-${currentYear}-${nextSequenceNumber}`,
         idFront: appIdFront || undefined,
         idBack: appIdBack || undefined,
         signedDoc: appSignedDoc || undefined
@@ -951,6 +945,7 @@ export default function FieldOfficerHub({
       },
       officeUse: {
         applicationNumber: nextAppNumber, // Sequential short ID copy
+        loanNumber: `L-${currentYear}-${nextSequenceNumber}`,
         approvedAmount: amt,
         interestRate: rate,
         installmentsCount: instCount,
@@ -2333,7 +2328,12 @@ export default function FieldOfficerHub({
                     <label className="text-[9px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
                       {lang === "si" ? "බිල්පතෙහි රූපය (Bill image)" : "Bill / Receipt Image"}
                     </label>
-                    {expBillImage ? (
+                    {isCompressingBill ? (
+                      <div className="flex items-center justify-center gap-2 p-1.5 bg-white border border-slate-200 rounded-xl py-3">
+                        <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-[10px] font-bold text-slate-650">Compressing...</span>
+                      </div>
+                    ) : expBillImage ? (
                       <div className="flex items-center gap-2 p-1.5 bg-white border border-slate-200 rounded-xl">
                         <img src={expBillImage} className="w-8 h-8 object-cover rounded-lg border border-slate-100" />
                         <span className="text-[10px] text-emerald-600 font-extrabold truncate flex-1">

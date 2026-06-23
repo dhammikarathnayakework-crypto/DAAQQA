@@ -49,7 +49,9 @@ import {
   deleteFieldOfficerFromSupabase,
   getInvestorsFromSupabase,
   sendInvestorToSupabase,
-  deleteInvestorFromSupabase
+  deleteInvestorFromSupabase,
+  uploadBase64Image,
+  getClient
 } from "./lib/supabase";
 import { translations, Language } from "./translations";
 
@@ -277,7 +279,34 @@ export default function App() {
         })
       ]).then(([dbLoans, dbOfficers, dbInvestors]) => {
         if (dbLoans && dbLoans.length > 0) {
-          setLoans(dbLoans);
+          // Ensure sequential numbering starting from 0001 for all existing and past loans
+          const sortedLoans = [...dbLoans].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+          const sanitizedLoans = sortedLoans.map((loan, index) => {
+            const sequence = (index + 1).toString().padStart(4, '0');
+            const loanYear = new Date(loan.createdAt).getFullYear();
+            const expectedLoanNumber = `L-${loanYear}-${sequence}`;
+            const expectedMemberNumber = `MEM-${loanYear}-${sequence}`;
+            
+            let isChanged = false;
+            let updatedLoan = { ...loan };
+            
+            if (updatedLoan.officeUse.loanNumber !== expectedLoanNumber) {
+              updatedLoan.officeUse.loanNumber = expectedLoanNumber;
+              isChanged = true;
+            }
+            if (updatedLoan.applicant.memberNumber !== expectedMemberNumber) {
+              updatedLoan.applicant.memberNumber = expectedMemberNumber;
+              isChanged = true;
+            }
+            
+            if (isChanged) {
+              sendLoanToSupabase(updatedLoan).catch(err => console.warn("Could not sync sanitized numbering", err));
+            }
+            return updatedLoan;
+          });
+          
+          // Maintain newest-first display order in state
+          setLoans(sanitizedLoans.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
         }
         if (dbOfficers && dbOfficers.length > 0) {
           setFieldOfficers(dbOfficers);
@@ -635,8 +664,31 @@ export default function App() {
   };
 
   // Handlers for Office Overhead Expenses
-  const handleAddOfficeExpense = (expense: OfficeExpenseItem) => {
-    setOfficeExpenses((prev) => [expense, ...prev]);
+  const handleAddOfficeExpense = async (expense: OfficeExpenseItem) => {
+    const defaultExpense = { ...expense };
+    // Synchronously prepend to UI to show immediate feedback
+    setOfficeExpenses((prev) => [defaultExpense, ...prev]);
+
+    // Handle background upload if there is a billImage in it
+    if (defaultExpense.billImage) {
+      const client = getClient();
+      if (client) {
+        try {
+          const publicUrl = await uploadBase64Image(
+            client,
+            defaultExpense.billImage,
+            `office-expenses/${defaultExpense.id}.jpg`
+          );
+          if (publicUrl !== defaultExpense.billImage) {
+            setOfficeExpenses((prev) => 
+              prev.map(e => e.id === defaultExpense.id ? { ...e, billImage: publicUrl } : e)
+            );
+          }
+        } catch (err) {
+          console.warn("Failed to upload office expense bill to Supabase.", err);
+        }
+      }
+    }
   };
 
   const handleUpdateOfficeExpenseStatus = (id: string, status: 'APPROVED' | 'REJECTED', approvedBy: string) => {

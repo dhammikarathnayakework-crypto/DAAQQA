@@ -67,6 +67,7 @@ export default function OfficeExpensesManager({
 
   // Drag and drop state
   const [dragActive, setDragActive] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
 
   // Clean form
   const resetForm = () => {
@@ -109,12 +110,38 @@ export default function OfficeExpensesManager({
   };
 
   // Image Upload handler
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      await compressAndLoad(file);
+    }
+  };
+
+  const compressAndLoad = async (file: File) => {
+    setIsCompressing(true);
+    try {
+      // Dynamic import to avoid SSR issues if any, but regular import is fine here since it's Vite
+      const imageCompression = (await import('browser-image-compression')).default;
+      const options = {
+        maxSizeMB: 0.1, // around 100KB
+        maxWidthOrHeight: 1200,
+        useWebWorker: true,
+        fileType: "image/jpeg"
+      };
+      const compressedFile = await imageCompression(file, options);
+      
       const reader = new FileReader();
       reader.onloadend = () => {
         setBillImage(reader.result as string);
+        setIsCompressing(false);
+      };
+      reader.readAsDataURL(compressedFile);
+    } catch (error) {
+      console.error("Image compression error:", error);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+         setBillImage(reader.result as string);
+         setIsCompressing(false);
       };
       reader.readAsDataURL(file);
     }
@@ -131,18 +158,14 @@ export default function OfficeExpensesManager({
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
 
     const file = e.dataTransfer.files?.[0];
     if (file && file.type.startsWith("image/")) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setBillImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      await compressAndLoad(file);
     }
   };
 
@@ -405,7 +428,12 @@ export default function OfficeExpensesManager({
                     accept="image/*" 
                     className="hidden" 
                   />
-                  {billImage ? (
+                  {isCompressing ? (
+                    <div className="flex flex-col items-center gap-2 py-1">
+                      <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-[10px] font-bold text-slate-650 block">Compressing...</span>
+                    </div>
+                  ) : billImage ? (
                     <div className="space-y-1">
                       <div className="w-12 h-12 bg-slate-200 rounded-lg overflow-hidden mx-auto border border-emerald-200 relative">
                         <img src={billImage} alt="bill receipt" className="w-full h-full object-cover" />

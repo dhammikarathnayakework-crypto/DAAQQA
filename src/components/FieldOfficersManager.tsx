@@ -53,6 +53,8 @@ export function generateOfficerHash(txId: string, date: string, type: string, am
   return `SEC-OFC-${padded}-${txId.slice(-4).toUpperCase()}`;
 }
 
+import imageCompression from 'browser-image-compression';
+
 interface ImageUploadFieldProps {
   label: string;
   subLabel?: string;
@@ -64,51 +66,41 @@ interface ImageUploadFieldProps {
 
 function ImageUploadField({ label, subLabel, value, onChange, onClear, lang }: ImageUploadFieldProps) {
   const [dragActive, setDragActive] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
   const fileInputId = React.useId();
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      compressAndLoad(e.target.files[0]);
+      await compressAndLoad(e.target.files[0]);
     }
   };
 
-  const compressAndLoad = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 1000;
-        const MAX_HEIGHT = 1000;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL("image/jpeg", 0.7);
-          onChange(compressed);
-        } else {
-          onChange(e.target?.result as string);
-        }
+  const compressAndLoad = async (file: File) => {
+    setIsCompressing(true);
+    try {
+      const options = {
+        maxSizeMB: 0.1, // around 100KB
+        maxWidthOrHeight: 1200,
+        useWebWorker: true,
+        fileType: "image/jpeg"
       };
-      img.src = e.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+      const compressedFile = await imageCompression(file, options);
+      
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        onChange(e.target?.result as string);
+        setIsCompressing(false);
+      };
+      reader.readAsDataURL(compressedFile);
+    } catch (error) {
+      console.error("Image compression error:", error);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+         onChange(e.target?.result as string);
+         setIsCompressing(false);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -178,14 +170,23 @@ function ImageUploadField({ label, subLabel, value, onChange, onClear, lang }: I
             onChange={handleFileChange}
             className="hidden"
           />
-          <Camera className="w-5 h-5 text-slate-400 mb-1" />
-          <span className="text-[10px] font-bold text-slate-650 block">
-            {lang === "si" ? "පින්තූරය තෝරන්න" : "Choose Photo"}
-          </span>
-          {subLabel && (
-            <span className="text-[8px] text-slate-400 block mt-0.5 leading-tight">
-              {subLabel}
-            </span>
+          {isCompressing ? (
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-[10px] font-bold text-slate-650 block">Compressing...</span>
+            </div>
+          ) : (
+            <>
+              <Camera className="w-5 h-5 text-slate-400 mb-1" />
+              <span className="text-[10px] font-bold text-slate-650 block">
+                {lang === "si" ? "පින්තූරය තෝරන්න" : "Choose Photo"}
+              </span>
+              {subLabel && (
+                <span className="text-[8px] text-slate-400 block mt-0.5 leading-tight">
+                  {subLabel}
+                </span>
+              )}
+            </>
           )}
         </div>
       )}
