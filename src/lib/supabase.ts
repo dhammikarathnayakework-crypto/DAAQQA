@@ -4,7 +4,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { Loan, FieldOfficer, Investor } from "../types";
+import { Loan, FieldOfficer, Investor, OfficeExpenseItem } from "../types";
 
 export interface SupabaseConfig {
   url: string;
@@ -126,6 +126,7 @@ create table if not exists public.loans (
 
 -- Enable Row Level Security (RLS) on loans
 alter table public.loans enable row level security;
+drop policy if exists "Enable all access for anon users" on public.loans;
 create policy "Enable all access for anon users" on public.loans
     for all using (true) with check (true);
 
@@ -170,6 +171,7 @@ notify pgrst, 'reload schema';
 
 -- Enable Row Level Security (RLS) on field_officers
 alter table public.field_officers enable row level security;
+drop policy if exists "Enable all access for anon users" on public.field_officers;
 create policy "Enable all access for anon users" on public.field_officers
     for all using (true) with check (true);
 
@@ -197,34 +199,77 @@ create table if not exists public.investors (
 
 -- Enable Row Level Security (RLS) on investors
 alter table public.investors enable row level security;
+drop policy if exists "Enable all access for anon users" on public.investors;
 create policy "Enable all access for anon users" on public.investors
     for all using (true) with check (true);
 
--- Enable Realtime for all three tables
-alter publication supabase_realtime add table public.loans;
-alter publication supabase_realtime add table public.field_officers;
-alter publication supabase_realtime add table public.investors;
+-- 4. OFFICE EXPENSES TABLE
+create table if not exists public.office_expenses (
+    id text primary key,
+    date text not null,
+    category text not null,
+    description text not null,
+    amount numeric not null,
+    notes text,
+    status text not null,
+    logged_by_officer_id text,
+    logged_by_officer_name text,
+    approved_by text,
+    verified_at text,
+    bill_image text,
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+    synced_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+-- Enable Row Level Security (RLS) on office_expenses
+alter table public.office_expenses enable row level security;
+drop policy if exists "Enable all access for anon users" on public.office_expenses;
+create policy "Enable all access for anon users" on public.office_expenses
+    for all using (true) with check (true);
+
+-- Enable Realtime for all tables safely
+DO $$
+BEGIN
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'loans') then
+        alter publication supabase_realtime add table public.loans;
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'field_officers') then
+        alter publication supabase_realtime add table public.field_officers;
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'investors') then
+        alter publication supabase_realtime add table public.investors;
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'office_expenses') then
+        alter publication supabase_realtime add table public.office_expenses;
+    end if;
+END
+$$;
 
 comment on table public.loans is 'Seth Capital Loan Ledger and Collections Records';
 comment on table public.field_officers is 'Seth Capital field representatives, employee target, expenses, allowances and cash remittances logs';
 comment on table public.investors is 'Seth Capital microfinance external seed funding partners, nomimees and capital transactions sheets';
+comment on table public.office_expenses is 'Seth Capital office and general expenses records';
 
--- 4. BUCKET SETUP FOR ATTACHMENTS & PHOTOS (loan-documents)
+-- 5. BUCKET SETUP FOR ATTACHMENTS & PHOTOS (loan-documents)
 -- Create bucket if it doesn't exist
 insert into storage.buckets (id, name, public)
 values ('loan-documents', 'loan-documents', true)
 on conflict (id) do nothing;
 
 -- Storage policies to allow public (anyone) to upload, read, update and delete (upsert) documents
+drop policy if exists "Allow public uploads for loan documents" on storage.objects;
 create policy "Allow public uploads for loan documents" on storage.objects
     for insert to public with check (bucket_id = 'loan-documents');
 
+drop policy if exists "Allow public reads for loan documents" on storage.objects;
 create policy "Allow public reads for loan documents" on storage.objects
     for select to public using (bucket_id = 'loan-documents');
 
+drop policy if exists "Allow public updates for loan documents" on storage.objects;
 create policy "Allow public updates for loan documents" on storage.objects
     for update to public using (bucket_id = 'loan-documents');
 
+drop policy if exists "Allow public deletes for loan documents" on storage.objects;
 create policy "Allow public deletes for loan documents" on storage.objects
     for delete to public using (bucket_id = 'loan-documents');
 `;
@@ -245,7 +290,7 @@ function toDbModel(loan: Loan) {
   };
 }
 
-function toAppModel(row: any): Loan {
+export function toAppModel(row: any): Loan {
   return {
     id: row.id,
     status: row.status as Loan["status"],
@@ -289,7 +334,7 @@ function toDbFieldOfficer(officer: FieldOfficer) {
   };
 }
 
-function toAppFieldOfficer(row: any): FieldOfficer {
+export function toAppFieldOfficer(row: any): FieldOfficer {
   return {
     id: row.id,
     name: row.name,
@@ -340,7 +385,7 @@ function toDbInvestor(investor: Investor) {
   };
 }
 
-function toAppInvestor(row: any): Investor {
+export function toAppInvestor(row: any): Investor {
   return {
     id: row.id,
     name: row.name,
@@ -689,6 +734,95 @@ export async function syncBulkInvestorsToSupabase(investors: Investor[]): Promis
   const dbRows = investors.map(toDbInvestor);
   const { error } = await client
     .from("investors")
+    .upsert(dbRows, { onConflict: "id" });
+
+  if (error) throw error;
+}
+
+// Conversion helpers for Office Expenses
+function toDbOfficeExpense(expense: OfficeExpenseItem) {
+  return {
+    id: expense.id,
+    date: expense.date,
+    category: expense.category,
+    description: expense.description,
+    amount: expense.amount,
+    notes: expense.notes || null,
+    status: expense.status,
+    logged_by_officer_id: expense.loggedByOfficerId || null,
+    logged_by_officer_name: expense.loggedByOfficerName || null,
+    approved_by: expense.approvedBy || null,
+    verified_at: expense.verifiedAt || null,
+    bill_image: expense.billImage || null,
+    created_at: new Date().toISOString()
+  };
+}
+
+export function toAppOfficeExpense(row: any): OfficeExpenseItem {
+  return {
+    id: row.id,
+    date: row.date,
+    category: row.category,
+    description: row.description,
+    amount: row.amount,
+    notes: row.notes || undefined,
+    status: row.status,
+    loggedByOfficerId: row.logged_by_officer_id || undefined,
+    loggedByOfficerName: row.logged_by_officer_name || undefined,
+    approvedBy: row.approved_by || undefined,
+    verifiedAt: row.verified_at || undefined,
+    billImage: row.bill_image || undefined
+  };
+}
+
+// --- Dynamic CRUD API methods for OFFICE EXPENSES ---
+
+export async function getOfficeExpensesFromSupabase(): Promise<OfficeExpenseItem[]> {
+  const client = getClient();
+  if (!client) throw new Error("Supabase client is not configured");
+
+  const { data, error } = await client
+    .from("office_expenses")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return (data || []).map(toAppOfficeExpense);
+}
+
+export async function sendOfficeExpenseToSupabase(expense: OfficeExpenseItem): Promise<void> {
+  const client = getClient();
+  if (!client) throw new Error("Supabase client is not configured");
+
+  const dModel = toDbOfficeExpense(expense);
+  const { error } = await client
+    .from("office_expenses")
+    .upsert(dModel, { onConflict: "id" });
+
+  if (error) throw error;
+}
+
+export async function deleteOfficeExpenseFromSupabase(expenseId: string): Promise<void> {
+  const client = getClient();
+  if (!client) throw new Error("Supabase client is not configured");
+
+  const { error } = await client
+    .from("office_expenses")
+    .delete()
+    .eq("id", expenseId);
+
+  if (error) throw error;
+}
+
+export async function syncBulkOfficeExpensesToSupabase(expenses: OfficeExpenseItem[]): Promise<void> {
+  const client = getClient();
+  if (!client) throw new Error("Supabase client is not configured");
+
+  if (expenses.length === 0) return;
+
+  const dbRows = expenses.map(toDbOfficeExpense);
+  const { error } = await client
+    .from("office_expenses")
     .upsert(dbRows, { onConflict: "id" });
 
   if (error) throw error;

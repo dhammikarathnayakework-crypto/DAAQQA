@@ -50,8 +50,19 @@ import {
   getInvestorsFromSupabase,
   sendInvestorToSupabase,
   deleteInvestorFromSupabase,
+  getOfficeExpensesFromSupabase,
+  sendOfficeExpenseToSupabase,
+  deleteOfficeExpenseFromSupabase,
   uploadBase64Image,
-  getClient
+  getClient,
+  toAppModel,
+  toAppFieldOfficer,
+  toAppInvestor,
+  toAppOfficeExpense,
+  syncBulkToSupabase,
+  syncBulkFieldOfficersToSupabase,
+  syncBulkInvestorsToSupabase,
+  syncBulkOfficeExpensesToSupabase
 } from "./lib/supabase";
 import { translations, Language } from "./translations";
 
@@ -276,8 +287,12 @@ export default function App() {
         getInvestorsFromSupabase().catch((err) => {
           console.warn("Could not auto-fetch investors (table might not exist yet):", err);
           return null;
+        }),
+        getOfficeExpensesFromSupabase().catch((err) => {
+          console.warn("Could not auto-fetch office expenses (table might not exist yet):", err);
+          return null;
         })
-      ]).then(([dbLoans, dbOfficers, dbInvestors]) => {
+      ]).then(([dbLoans, dbOfficers, dbInvestors, dbOfficeExpenses]) => {
         if (dbLoans && dbLoans.length > 0) {
           // Ensure sequential numbering starting from 0001 for all existing and past loans
           const sortedLoans = [...dbLoans].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -314,12 +329,81 @@ export default function App() {
         if (dbInvestors && dbInvestors.length > 0) {
           setInvestors(dbInvestors);
         }
+        if (dbOfficeExpenses && dbOfficeExpenses.length > 0) {
+          setOfficeExpenses(dbOfficeExpenses);
+        }
         setSupabaseConnected(true);
         console.log("Successfully auto-fetched active datasets from Supabase live database.", {
           loans: dbLoans?.length || 0,
           officers: dbOfficers?.length || 0,
-          investors: dbInvestors?.length || 0
+          investors: dbInvestors?.length || 0,
+          officeExpenses: dbOfficeExpenses?.length || 0
         });
+
+        // Set up Realtime subscriptions
+        const client = getClient();
+        if (client) {
+          const channel = client.channel('seth-capital-realtime');
+
+          channel
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'loans' }, (payload) => {
+              if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                const appLoan = toAppModel(payload.new);
+                setLoans(prev => {
+                  const exists = prev.some(l => l.id === appLoan.id);
+                  if (exists) {
+                    return prev.map(l => l.id === appLoan.id ? appLoan : l).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                  } else {
+                    return [appLoan, ...prev].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                  }
+                });
+              } else if (payload.eventType === 'DELETE') {
+                setLoans(prev => prev.filter(l => l.id !== payload.old.id));
+              }
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'field_officers' }, (payload) => {
+              if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                const appOfficer = toAppFieldOfficer(payload.new);
+                setFieldOfficers(prev => {
+                  const exists = prev.some(o => o.id === appOfficer.id);
+                  if (exists) return prev.map(o => o.id === appOfficer.id ? appOfficer : o);
+                  return [appOfficer, ...prev];
+                });
+              } else if (payload.eventType === 'DELETE') {
+                setFieldOfficers(prev => prev.filter(o => o.id !== payload.old.id));
+              }
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'investors' }, (payload) => {
+              if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                const appInvestor = toAppInvestor(payload.new);
+                setInvestors(prev => {
+                  const exists = prev.some(i => i.id === appInvestor.id);
+                  if (exists) return prev.map(i => i.id === appInvestor.id ? appInvestor : i);
+                  return [appInvestor, ...prev];
+                });
+              } else if (payload.eventType === 'DELETE') {
+                setInvestors(prev => prev.filter(i => i.id !== payload.old.id));
+              }
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'office_expenses' }, (payload) => {
+              if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                const appExpense = toAppOfficeExpense(payload.new);
+                setOfficeExpenses(prev => {
+                  const exists = prev.some(e => e.id === appExpense.id);
+                  if (exists) return prev.map(e => e.id === appExpense.id ? appExpense : e);
+                  return [appExpense, ...prev];
+                });
+              } else if (payload.eventType === 'DELETE') {
+                setOfficeExpenses(prev => prev.filter(e => e.id !== payload.old.id));
+              }
+            })
+            .subscribe();
+
+          return () => {
+            client.removeChannel(channel);
+          };
+        }
+
       }).catch((err) => {
         console.error("General startup fetch failed:", err);
         setSupabaseConnected(false);
@@ -665,23 +749,24 @@ export default function App() {
 
   // Handlers for Office Overhead Expenses
   const handleAddOfficeExpense = async (expense: OfficeExpenseItem) => {
-    const defaultExpense = { ...expense };
+    let finalExpense = { ...expense };
     // Synchronously prepend to UI to show immediate feedback
-    setOfficeExpenses((prev) => [defaultExpense, ...prev]);
+    setOfficeExpenses((prev) => [finalExpense, ...prev]);
 
     // Handle background upload if there is a billImage in it
-    if (defaultExpense.billImage) {
+    if (finalExpense.billImage) {
       const client = getClient();
       if (client) {
         try {
           const publicUrl = await uploadBase64Image(
             client,
-            defaultExpense.billImage,
-            `office-expenses/${defaultExpense.id}.jpg`
+            finalExpense.billImage,
+            `office-expenses/${finalExpense.id}.jpg`
           );
-          if (publicUrl !== defaultExpense.billImage) {
+          if (publicUrl !== finalExpense.billImage) {
+            finalExpense = { ...finalExpense, billImage: publicUrl };
             setOfficeExpenses((prev) => 
-              prev.map(e => e.id === defaultExpense.id ? { ...e, billImage: publicUrl } : e)
+              prev.map(e => e.id === finalExpense.id ? finalExpense : e)
             );
           }
         } catch (err) {
@@ -689,25 +774,62 @@ export default function App() {
         }
       }
     }
+    
+    // Sync to Supabase
+    sendOfficeExpenseToSupabase(finalExpense).catch((err) => {
+      console.warn("Auto-sync background save to Supabase skipped:", err);
+    });
   };
 
   const handleUpdateOfficeExpenseStatus = (id: string, status: 'APPROVED' | 'REJECTED', approvedBy: string) => {
-    setOfficeExpenses((prev) =>
-      prev.map((e) =>
-        e.id === id
-          ? {
-              ...e,
-              status,
-              approvedBy,
-              verifiedAt: new Date().toISOString().split("T")[0]
-            }
-          : e
-      )
-    );
+    let updatedExpense: OfficeExpenseItem | undefined;
+    setOfficeExpenses((prev) => {
+      const updated = prev.map((e) => {
+        if (e.id === id) {
+          updatedExpense = {
+            ...e,
+            status,
+            approvedBy,
+            verifiedAt: new Date().toISOString().split("T")[0]
+          };
+          return updatedExpense;
+        }
+        return e;
+      });
+      return updated;
+    });
+
+    if (updatedExpense) {
+      sendOfficeExpenseToSupabase(updatedExpense).catch((err) => {
+        console.warn("Auto-sync background update to Supabase skipped:", err);
+      });
+    }
   };
 
   const handleDeleteOfficeExpense = (id: string) => {
     setOfficeExpenses((prev) => prev.filter((e) => e.id !== id));
+    deleteOfficeExpenseFromSupabase(id).catch((err) => {
+      console.warn("Auto-sync background delete skipped:", err);
+    });
+  };
+
+  const handlePushSyncAll = async () => {
+    if (!supabaseConnected) {
+      alert(lang === "si" ? "ඔබ දැනට ක්ලවුඩ් (Cloud) පද්ධතියට සම්බන්ධ වී නොමැත." : "No cloud connection available.");
+      return;
+    }
+    const yes = confirm(lang === "si" ? "ඔබගේ දුරකථනයේ හෝ පරිගණකයේ ඇති පරණ දත්ත සියල්ල ක්ලවුඩ් එකට යැවීමට අවශ්‍යද?" : "Push all local offline data to Cloud Supabase?");
+    if (!yes) return;
+
+    try {
+      if (loans.length > 0) await syncBulkToSupabase(loans);
+      if (fieldOfficers.length > 0) await syncBulkFieldOfficersToSupabase(fieldOfficers);
+      if (investors.length > 0) await syncBulkInvestorsToSupabase(investors);
+      if (officeExpenses.length > 0) await syncBulkOfficeExpensesToSupabase(officeExpenses);
+      alert(lang === "si" ? "සියලුම පරණ දත්ත සාර්ථකව ක්ලවුඩ් පද්ධතියට යවන ලදි!" : "All local data pushed successfully to Cloud!");
+    } catch (e: any) {
+      alert(`Sync failed: ${e.message}`);
+    }
   };
 
   // Router rendering helper
@@ -727,6 +849,7 @@ export default function App() {
           onUpdateRepTransfer={handleUpdateRepTransfer}
           onAddLoan={handleAddLoan}
           onUpdateLoan={handleSaveLoan}
+          onPushSync={handlePushSyncAll}
           onLogout={() => {
             setCurrentUserRole("GUEST");
             setSelectedOfficerId("");
@@ -863,10 +986,11 @@ export default function App() {
               loans={loans} 
               fieldOfficers={fieldOfficers}
               investors={investors}
-              onRestoreAll={({ loans: l, fieldOfficers: fo, investors: i }) => {
+              onRestoreAll={({ loans: l, fieldOfficers: fo, investors: i, officeExpenses: oe }) => {
                 if (l) setLoans(l);
                 if (fo) setFieldOfficers(fo);
                 if (i) setInvestors(i);
+                if (oe) setOfficeExpenses(oe);
               }}
               lang={lang} 
             />

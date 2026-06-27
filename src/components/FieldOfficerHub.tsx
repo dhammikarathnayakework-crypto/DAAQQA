@@ -197,6 +197,7 @@ interface FieldOfficerHubProps {
   onAddLoan: (loan: Loan) => void;
   onUpdateLoan: (loan: Loan) => void;
   onLogout: () => void;
+  onPushSync?: () => void;
   lang: Language;
 }
 
@@ -213,6 +214,7 @@ export default function FieldOfficerHub({
   onAddLoan,
   onUpdateLoan,
   onLogout,
+  onPushSync,
   lang
 }: FieldOfficerHubProps) {
   const officer = {
@@ -1018,6 +1020,16 @@ export default function FieldOfficerHub({
           </div>
 
           <div className="flex items-center gap-2.5">
+            {onPushSync && (
+              <button
+                onClick={onPushSync}
+                className="flex items-center gap-1.5 bg-indigo-950 hover:bg-indigo-900 border border-indigo-900 text-indigo-300 font-black px-4 py-2 rounded-xl text-xs cursor-pointer active:scale-95 transition-all"
+                title={lang === "si" ? "පරණ දත්ත ක්ලවුඩ් එකට යවන්න" : "Sync Local Data"}
+              >
+                <Upload className="w-4 h-4 text-indigo-400" />
+                <span className="hidden sm:inline">{lang === "si" ? "SYNC දත්ත" : "SYNC DB"}</span>
+              </button>
+            )}
             <span className="text-[10px] text-slate-400 font-bold bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-850">
               {lang === "si" ? "ශාඛාව: කොළඹ 03" : "Branch: Colombo 03"}
             </span>

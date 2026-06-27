@@ -1,492 +1,503 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect } from "react";
 import { 
-  Database, 
-  RefreshCw, 
+  Cloud, 
   CloudLightning, 
-  Copy, 
-  Check, 
-  CheckCircle, 
-  Server, 
+  RefreshCw, 
+  Database, 
+  CheckCircle2, 
   AlertTriangle, 
-  Wifi, 
-  WifiOff, 
-  Terminal, 
-  ArrowUpRight, 
-  ArrowDownLeft,
+  Trash2, 
+  Link2,
+  ServerOff,
+  Terminal,
+  Activity,
+  Copy,
+  Check,
   ChevronDown,
   ChevronUp
 } from "lucide-react";
-import { Loan, FieldOfficer, Investor } from "../types";
+import { Loan, FieldOfficer, Investor, OfficeExpenseItem } from "../types";
+import { Language } from "../translations";
 import { 
   getSupabaseConfig, 
   saveSupabaseConfig, 
   clearSupabaseConfig, 
-  testSupabaseConnection, 
-  getLoansFromSupabase, 
-  syncBulkToSupabase, 
+  testSupabaseConnection,
+  getLoansFromSupabase,
+  syncBulkToSupabase,
   getFieldOfficersFromSupabase,
   syncBulkFieldOfficersToSupabase,
   getInvestorsFromSupabase,
   syncBulkInvestorsToSupabase,
-  SUPABASE_SETUP_SQL 
+  getOfficeExpensesFromSupabase,
+  syncBulkOfficeExpensesToSupabase,
+  SUPABASE_SETUP_SQL
 } from "../lib/supabase";
 
-interface SupabaseSyncManagerProps {
+interface SupabaseSyncProps {
   loans: Loan[];
   fieldOfficers: FieldOfficer[];
   investors: Investor[];
-  onRestoreAll: (restored: { loans?: Loan[]; fieldOfficers?: FieldOfficer[]; investors?: Investor[] }) => void;
-  lang: "en" | "si";
+  officeExpenses?: OfficeExpenseItem[];
+  onRestoreAll: (data: { loans?: Loan[]; fieldOfficers?: FieldOfficer[]; investors?: Investor[]; officeExpenses?: OfficeExpenseItem[] }) => void;
+  lang: Language;
 }
 
-export default function SupabaseSyncManager({ loans, fieldOfficers, investors, onRestoreAll, lang }: SupabaseSyncManagerProps) {
-  const [supabaseUrl, setSupabaseUrl] = useState("");
-  const [supabaseAnonKey, setSupabaseAnonKey] = useState("");
-  const [isConnected, setIsConnected] = useState<boolean | null>(null);
-  const [testingConnection, setTestingConnection] = useState(false);
-  const [syncing, setSyncing] = useState<"push" | "pull" | null>(null);
-  const [copiedSql, setCopiedSql] = useState(false);
-  const [showSql, setShowSql] = useState(false);
-  const [logMessages, setLogMessages] = useState<Array<{ type: "info" | "success" | "error"; text: string; time: string }>>([]);
+export default function SupabaseSyncManager({ 
+  loans, 
+  fieldOfficers, 
+  investors, 
+  officeExpenses = [],
+  onRestoreAll, 
+  lang 
+}: SupabaseSyncProps) {
+  const [url, setUrl] = useState("");
+  const [anonKey, setAnonKey] = useState("");
+  const [isConnected, setIsConnected] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [isSuccess, setIsSuccess] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [syncHistory, setSyncHistory] = useState<string[]>([]);
+  const [copiedSQL, setCopiedSQL] = useState(false);
+  const [showSQL, setShowSQL] = useState(false);
 
-  const isConfiguredByEnv = !localStorage.getItem("seth-capital-supabase-credentials") && 
-    !!(import.meta as any).env?.VITE_SUPABASE_URL && 
-    !!(import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
-
-  // Add event status logs
-  const addLog = (type: "info" | "success" | "error", text: string) => {
-    const time = new Date().toLocaleTimeString();
-    setLogMessages(prev => [{ type, text, time }, ...prev.slice(0, 8)]);
-  };
-
-  // Initial credentials loading
+  // On mount check if credentials exist and are active
   useEffect(() => {
     const config = getSupabaseConfig();
     if (config) {
-      setSupabaseUrl(config.url);
-      setSupabaseAnonKey(config.anonKey);
-      testConnection(config.url, config.anonKey, true);
-    } else {
-      setIsConnected(false);
-      addLog("info", lang === "si" 
-         ? "Supabase ඩේටාබේස් සම්බන්ධතාවය වින්‍යාස කර නැත." 
-         : "Supabase database credentials are not configured yet."
-      );
+      setUrl(config.url);
+      setAnonKey(config.anonKey);
+      testSupabaseConnection(config.url, config.anonKey)
+        .then((ok) => {
+          setIsConnected(ok);
+          if (ok) {
+            addLog("Cloud Connection: Online (Auto-detected).");
+          } else {
+            addLog("Cloud Connection: Inactive. Credentials invalid or server sleeping.");
+          }
+        })
+        .catch(() => {
+          setIsConnected(false);
+          addLog("Cloud Connection: Offline.");
+        });
     }
-  }, [lang]);
+  }, []);
 
-  const testConnection = async (url: string, key: string, silent = false) => {
-    if (!url || !key) {
-      if (!silent) {
-        addLog("error", lang === "si" ? "URL සහ Anon Key ඇතුළත් කළ යුතුය." : "URL and Anon Key must both be entered.");
-      }
-      setIsConnected(false);
+  const addLog = (msg: string) => {
+    const timestamp = new Date().toISOString().split("T")[1].slice(0, 8);
+    setSyncHistory((prev) => [`[${timestamp}] ${msg}`, ...prev.slice(0, 9)]);
+  };
+
+  const handleTestConnection = async () => {
+    if (!url.trim() || !anonKey.trim()) {
+      setIsSuccess(false);
+      setStatusMessage(lang === "si" ? "පළමුව URL සහ ANON KEY ඇතුළත් කරන්න." : "Please input project URL and Anon token first.");
       return;
     }
 
-    setTestingConnection(true);
-    if (!silent) {
-      addLog("info", lang === "si" ? "Supabase ජාල සම්බන්ධතාවය පරීක්ෂා කරමින්..." : "Checking communication with Supabase servers...");
-    }
-
-    const success = await testSupabaseConnection(url, key);
-    setIsConnected(success);
-    setTestingConnection(false);
-
-    if (success) {
-      if (!silent) {
-        addLog("success", lang === "si" ? "Supabase ඩේටාබේස් එක සාර්ථකව සම්බන්ධ විය!" : "Supabase database integrated successfully!");
-      }
-    } else {
-      if (!silent) {
-        addLog("error", lang === "si" 
-          ? "සම්බන්ධතාවය අසාර්ථක විය. කරුණාකර URL / Key හෝ SQL Table එක නිවැරදිදැයි පරීක්ෂා කරන්න." 
-          : "Connection failed. Please inspect keys, credentials, or table deployment SQL."
-        );
-      }
-    }
-  };
-
-  const handleSaveCredentials = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!supabaseUrl.trim() || !supabaseAnonKey.trim()) return;
-
-    saveSupabaseConfig(supabaseUrl, supabaseAnonKey);
-    addLog("info", lang === "si" ? "නව සැකසුම් සුරකින ලදී! සම්බන්ධතාවය පරීක්ෂා කරමින්..." : "New credentials stored! Handshaking with server...");
-    await testConnection(supabaseUrl, supabaseAnonKey);
-  };
-
-  const handleClearCredentials = () => {
-    clearSupabaseConfig();
-    setSupabaseUrl("");
-    setSupabaseAnonKey("");
-    setIsConnected(false);
-    addLog("info", lang === "si" ? "සම්බන්ධතා සැකසුම් ඉවත් කරන ලදී." : "Connection settings cleared.");
-  };
-
-  const handlePush = async () => {
-    if (!isConnected) {
-      addLog("error", lang === "si" ? "පළමුව සක්‍රිය සම්බන්ධතාවයක් ස්ථාපිත කරන්න." : "Please establish an active server connection first.");
-      return;
-    }
-    if (loans.length === 0 && fieldOfficers.length === 0 && investors.length === 0) {
-      addLog("error", lang === "si" ? "උඩුගත කිරීමට කිසිදු දත්තයක් නොමැත." : "No data arrays exist to upload.");
-      return;
-    }
-
-    setSyncing("push");
-    addLog("info", lang === "si" 
-      ? `සියලුම දත්ත (ණය ලේඛන ${loans.length}, නිලධාරීන් ${fieldOfficers.length}, ආයෝජකයින් ${investors.length}) Supabase වෙත උඩුගත කරමින්...` 
-      : `Uploading all datasets (loans: ${loans.length}, officers: ${fieldOfficers.length}, investors: ${investors.length}) to Cloud Database...`
-    );
+    setIsTesting(true);
+    setStatusMessage("");
+    addLog("Testing cloud routing boundaries...");
 
     try {
-      // 1. Sync Loans
-      if (loans.length > 0) {
-        await syncBulkToSupabase(loans);
-        addLog("success", lang === "si" ? "ණය ගිණුම් සාර්ථකව සමමුහුර්ත කරන ලදී." : "Synced active loan ledgers.");
+      const ok = await testSupabaseConnection(url, anonKey);
+      setIsConnected(ok);
+      setIsSuccess(ok);
+      if (ok) {
+        saveSupabaseConfig(url, anonKey);
+        setStatusMessage(lang === "si" ? "සම්බන්ධතාවය සාර්ථකයි! අගයන් සේව් විය." : "Test successful! Supabase cloud handshake established.");
+        addLog("Sync Handshake: Established successfully.");
+      } else {
+        setStatusMessage(lang === "si" ? "සම්බන්ධතාවය අසාර්ථකයි. අගයන් පරීක්ෂා කරන්න." : "Handshake failed. Double-check your database policies.");
+        addLog("Sync Handshake: Failed.");
       }
-      
-      // 2. Sync Field Officers
-      if (fieldOfficers.length > 0) {
-        await syncBulkFieldOfficersToSupabase(fieldOfficers);
-        addLog("success", lang === "si" ? "ක්ෂේත්‍ර නිලධාරීන් සාර්ථකව සමමුහුර්ත කරන ලදී." : "Synced field representatives database.");
-      }
-
-      // 3. Sync Investors
-      if (investors.length > 0) {
-        await syncBulkInvestorsToSupabase(investors);
-        addLog("success", lang === "si" ? "ආයෝජකයින්ගේ දත්ත සාර්ථකව සමමුහුර්ත කරන ලදී." : "Synced external seed capital ledger.");
-      }
-
-      addLog("success", lang === "si" 
-        ? "සියලුම දත්ත සාර්ථකව Supabase ඩේටාබේස් එක වෙත යාවත්කාලීන කරන ලදී!" 
-        : "All entries successfully synchronized with Supabase cloud storage!"
-      );
     } catch (e: any) {
-      console.error(e);
-      addLog("error", lang === "si" 
-        ? `උඩුගත කිරීම අසාර්ථකයි: ${e.message || "රෝල්‍ස් ව්‍යුහයන් (Tables) සකස් කර නොමැති විය හැක."}` 
-        : `Upload failed: ${e.message || "The standard SQL Relation schemas might not be fully configured."}`
-      );
+      setIsConnected(false);
+      setIsSuccess(false);
+      setStatusMessage(e.message || "Failed to route to specified Supabase endpoint.");
+      addLog(`Error: ${e.message || "Sync router fault"}`);
     } finally {
-      setSyncing(null);
+      setIsTesting(false);
     }
   };
 
-  const handlePull = async () => {
+  const handleClearConfig = () => {
+    clearSupabaseConfig();
+    setUrl("");
+    setAnonKey("");
+    setIsConnected(false);
+    setIsSuccess(true);
+    setStatusMessage(lang === "si" ? "පද්ධතියෙන් ක්ලවුඩ් පරිගණක සැකසුම් ඉවත් කෙරුණි." : "Cloud configurations removed from local host.");
+    addLog("Cloud credentials cleared.");
+  };
+
+  const handleSyncUp = async () => {
     if (!isConnected) {
-      addLog("error", lang === "si" ? "පළමුව සක්‍රිය සම්බන්ධතාවයක් ස්ථාපිත කරන්න." : "Please establish an active server connection first.");
+      setIsSuccess(false);
+      setStatusMessage(lang === "si" ? "පළමුව සම්බන්ධතාවය සත්‍යාපනය කරන්න." : "Please establish a valid active portal uplink first.");
       return;
     }
 
-    if (!confirm(lang === "si" 
-      ? "පද්ධතියේ දැනට පවතින දත්ත (ණය, නිලධාරීන්, ආයෝජකයින්) මකා දමා Supabase වල ඇති දත්ත ප්‍රතිස්ථාපනය කිරීමට අවශ්‍යද?" 
-      : "Downgrade and overwrite ALL current local collections (loans, officers, investors) with live Supabase database rows?")) {
-      return;
-    }
-
-    setSyncing("pull");
-    addLog("info", lang === "si" ? "Supabase වෙතින් දත්ත බාගත කරමින්..." : "Downloading data from Supabase live cloud storage...");
+    setIsSyncing(true);
+    setStatusMessage("");
+    addLog(`Initiating bulk backup upload...`);
 
     try {
-      addLog("info", lang === "si" ? "ණය ගිණුම් ලබාගනිමින්..." : "Downloading loan table records...");
+      // 1. Sync loans
+      addLog(`Uploading ${loans.length} credit ledger files...`);
+      await syncBulkToSupabase(loans);
+
+      // 2. Sync field officers
+      addLog(`Uploading ${fieldOfficers.length} field officer profiles...`);
+      await syncBulkFieldOfficersToSupabase(fieldOfficers);
+
+      // 3. Sync investors
+      addLog(`Uploading ${investors.length} investor ledgers...`);
+      await syncBulkInvestorsToSupabase(investors);
+
+      // 4. Sync office expenses
+      addLog(`Uploading ${officeExpenses.length} office expenses...`);
+      await syncBulkOfficeExpensesToSupabase(officeExpenses);
+
+      setIsSuccess(true);
+      setStatusMessage(lang === "si" ? "සියලුම දත්ත සාර්ථකව ක්ලවුඩ් ලේඛනයට අප්ලෝඩ් විය!" : "Database successfully mirrored to Supabase Cloud!");
+      addLog("Upload sync stream completed.");
+    } catch (e: any) {
+      let cleanMessage = e.message || "Database synchronization upload stream failed.";
+      if (cleanMessage.includes("does not exist") || cleanMessage.includes("relation")) {
+        cleanMessage = lang === "si" 
+          ? "Supabase ඩේටාබේස් එකේ ටේබල් සෑදී නැත! කරුණාකර පහත ඇති 'SQL ඩේටාබේස් එක ක්‍රියාත්මක කිරීමේ පියවර' අනුගමනය කර SQL කේතය රන් කරන්න."
+          : "Database tables do not exist in Supabase! Please copy and run the SQL setup script below in your Supabase SQL Editor first.";
+        setShowSQL(true); // Auto-expand SQL helper section!
+      }
+      setIsSuccess(false);
+      setStatusMessage(cleanMessage);
+      addLog(`Uplink fault: ${e.message || "Sync failure"}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSyncDown = async () => {
+    if (!isConnected) {
+      setIsSuccess(false);
+      setStatusMessage(lang === "si" ? "පළමුව සම්බන්ධතාවය සත්‍යාපනය කරන්න." : "Please establish a valid active portal uplink first.");
+      return;
+    }
+
+    if (!confirm(lang === "si" ? "මෙමගින් ක්ලවුඩ් පද්ධතියේ ඇති දත්ත වලින් ඔබගේ බ්‍රවුසරයේ ඇති දත්ත සියල්ල වෙනස් වනු ඇත. තහවුරු කරනවාද?" : "This will replace all your current browser records with remote Cloud database states. Continue?")) {
+      return;
+    }
+
+    setIsSyncing(true);
+    setStatusMessage("");
+    addLog("Requesting remote database states...");
+
+    try {
+      // 1. Get remote loans
+      addLog("Downloading active loans...");
       const dbLoans = await getLoansFromSupabase();
-      
-      addLog("info", lang === "si" ? "නිලධාරි ලැයිස්තුව ලබාගනිමින්..." : "Downloading field representative table records...");
+
+      // 2. Get remote officers
+      addLog("Downloading field officers...");
       const dbOfficers = await getFieldOfficersFromSupabase();
 
-      addLog("info", lang === "si" ? "ආයෝජන ලැයිස්තුව ලබාගනිමින්..." : "Downloading seed investors table records...");
+      // 3. Get remote investors
+      addLog("Downloading investor profiles...");
       const dbInvestors = await getInvestorsFromSupabase();
 
-      onRestoreAll({ loans: dbLoans, fieldOfficers: dbOfficers, investors: dbInvestors });
+      // 4. Get remote office expenses
+      addLog("Downloading office expenses...");
+      const dbOfficeExpenses = await getOfficeExpensesFromSupabase();
 
-      addLog("success", lang === "si" 
-        ? `සාර්ථකව ණය ගිණුම් ${dbLoans.length}, ක්ෂේත්‍ර නිලධාරීන් ${dbOfficers.length} සහ ආයෝජකයින් ${dbInvestors.length} ක් ප්‍රතිස්ථාපනය කරන ලදී!` 
-        : `Successfully imported: loans ${dbLoans.length}, officers ${dbOfficers.length}, investors ${dbInvestors.length} into system!`
-      );
+      onRestoreAll({
+        loans: dbLoans,
+        fieldOfficers: dbOfficers,
+        investors: dbInvestors,
+        officeExpenses: dbOfficeExpenses
+      });
+
+      setIsSuccess(true);
+      setStatusMessage(lang === "si" ? "දත්ත සාර්ථකව බ්‍රවුසරයට බාගත විය!" : "Local browser storage synchronized with Cloud models!");
+      addLog(`Download synced: ${dbLoans.length} Loans, ${dbOfficers.length} Reps, ${dbInvestors.length} Investors.`);
     } catch (e: any) {
-      console.error(e);
-      addLog("error", lang === "si" 
-        ? `බාගත කිරීම අසාර්ථකයි: ${e.message || "රෝල්ස් ව්‍යුහයන් සර්වර් හි සකස් කර නැත."}` 
-        : `Download failed: ${e.message || "Tables are missing or relation scheme is uncreated on Supabase."}`
-      );
+      let cleanMessage = e.message || "Database download streams aborted.";
+      if (cleanMessage.includes("does not exist") || cleanMessage.includes("relation")) {
+        cleanMessage = lang === "si" 
+          ? "Supabase ඩේටාබේස් එකේ ටේබල් සෑදී නැත! කරුණාකර පහත ඇති 'SQL ඩේටාබේස් එක ක්‍රියාත්මක කිරීමේ පියවර' අනුගමනය කර SQL කේතය රන් කරන්න."
+          : "Database tables do not exist in Supabase! Please copy and run the SQL setup script below in your Supabase SQL Editor first.";
+        setShowSQL(true); // Auto-expand SQL helper section!
+      }
+      setIsSuccess(false);
+      setStatusMessage(cleanMessage);
+      addLog(`Downlink stream fault: ${e.message || "Download failed"}`);
     } finally {
-      setSyncing(null);
+      setIsSyncing(false);
     }
   };
 
-  const copySqlToClipboard = () => {
+  const handleCopySQL = () => {
     navigator.clipboard.writeText(SUPABASE_SETUP_SQL);
-    setCopiedSql(true);
-    setTimeout(() => setCopiedSql(false), 3000);
-    addLog("info", lang === "si" ? "SQL කේතය ඔබගේ පසුරු පුවරුවට (Clipboard) පිටපත් කරන ලදී." : "SQL setup script copied to clipboard.");
+    setCopiedSQL(true);
+    setTimeout(() => setCopiedSQL(false), 2000);
   };
 
   return (
-    <div className="space-y-6 select-none font-sans max-w-5xl mx-auto">
-      {/* Title Header Block */}
-      <div className="bg-white border border-slate-100 rounded-3xl p-6 md:p-8 shadow-xs relative overflow-hidden">
-        <div className="absolute right-0 top-0 w-36 h-36 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h2 className="text-2xl font-black text-slate-805 flex items-center gap-2.5">
-              <Database className="w-6 h-6 text-indigo-600 animate-pulse" />
-              {lang === "si" ? "Supabase SQL වලාකුළු සම්බන්ධතාවය" : "Supabase Cloud Database Center"}
-            </h2>
-            <p className="text-slate-500 text-xs">
-              {lang === "si" 
-                ? "සියලුම ණය ගිණුම්, දිනපතා එකතු කිරීම් සහ ගනුදෙනු දත්ත Supabase SQL Database එක සමඟ සජීවීව සමමුහුර්ත (Realtime Sync) කරන්න." 
-                : "Synchronize all microfinance ledger streams, customer lists, and payment receipts live using Supabase servers."}
-            </p>
-          </div>
-
+    <div className="bg-white border border-slate-150 rounded-3xl p-6 md:p-8 shadow-xs font-sans animate-fade-in" id="supabase-sync-panel">
+      
+      {/* Header and Sync Indicators */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-5 mb-5">
+        <div className="space-y-1">
           <div className="flex items-center gap-2">
-            {isConnected ? (
-              <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-650 px-3.5 py-1.5 rounded-full text-xs font-extrabold border border-emerald-100 shadow-xs">
-                <Wifi className="w-4 h-4 text-emerald-500" />
-                {lang === "si" ? "සම්බන්ධයි (ONLINE)" : "Connected (LIVE)"}
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 bg-rose-50 text-rose-650 px-3.5 py-1.5 rounded-full text-xs font-extrabold border border-rose-100 shadow-xs">
-                <WifiOff className="w-4 h-4 text-rose-500" />
-                {lang === "si" ? "නොබැඳි (OFFLINE)" : "Disconnected"}
-              </span>
-            )}
+            <span className={`p-1.5 rounded-xl border ${
+              isConnected 
+                ? "bg-emerald-50 border-emerald-200 text-emerald-600 animate-pulse" 
+                : "bg-slate-50 border-slate-200 text-slate-400"
+            }`}>
+              {isConnected ? <CloudLightning className="w-5 h-5 shrink-0" /> : <Cloud className="w-5 h-5 shrink-0" />}
+            </span>
+            <h4 className="font-extrabold text-slate-800 text-sm uppercase tracking-tight">
+              {lang === "si" ? "Supabase Cloud සත්‍යාපන මධ්‍යස්ථානය" : "Supabase Realtime Cloud Sync Deck"}
+            </h4>
           </div>
+          <p className="text-slate-400 text-xs font-semibold leading-relaxed">
+            {lang === "si" 
+              ? "සජීවී කාර්යාල දත්ත සේවා යොමුකිරීම් සහ ආරක්ෂක උපස්ථ Supabase ක්ලවුඩ් සර්වර්ස් සමඟ ස්වයංක්‍රීයව සිදු කරන්න." 
+              : "Synchronize local microcredits, legal borrower files, offline ledger payments, and capital investors directly with enterprise Supabase."}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {isConnected ? (
+            <span className="px-3 py-1 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-full text-[10px] font-extrabold uppercase flex items-center gap-1">
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+              <span>Cloud Active</span>
+            </span>
+          ) : (
+            <span className="px-3 py-1 bg-slate-100 border border-slate-200 text-slate-400 rounded-full text-[10px] font-extrabold uppercase flex items-center gap-1">
+              <span className="w-1.5 h-1.5 bg-slate-350 rounded-full"></span>
+              <span>Portal Closed</span>
+            </span>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Connection Configuration Controls */}
-        <div className="bg-white border border-slate-100 rounded-3xl p-6 md:p-8 shadow-xs lg:col-span-7 space-y-6">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h3 className="font-extrabold text-slate-750 text-xs uppercase tracking-wider flex items-center gap-2">
-              <Server className="w-4.5 h-4.5 text-indigo-500" />
-              {lang === "si" ? "සම්බන්ධතා අක්තපත්‍ර (Credentials)" : "Database Credentials Configuration"}
-            </h3>
-            {isConfiguredByEnv && (
-              <span className="text-[10px] font-bold text-indigo-650 bg-indigo-50 px-2 py-0.5 rounded">
-                Configured via .env
-              </span>
-            )}
+        
+        {/* Credentials Form Box */}
+        <div className="lg:col-span-4 space-y-4 bg-slate-50 border border-slate-150 p-5 rounded-2xl relative overflow-hidden">
+          <div className="flex items-center gap-1 text-slate-700 mb-2">
+            <Link2 className="w-4 h-4 text-slate-400 shrink-0" />
+            <h5 className="font-extrabold text-xs uppercase text-slate-700">Database Uplink Handles</h5>
           </div>
 
-          <form onSubmit={handleSaveCredentials} className="space-y-4 text-xs">
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="font-semibold text-slate-500 uppercase tracking-widest text-[10px]">
-                  Supabase URL
-                </label>
-                <a 
-                  href="https://supabase.com" 
-                  target="_blank" 
-                  rel="noreferrer" 
-                  className="text-[10px] text-indigo-600 hover:underline font-bold"
-                >
-                  Create Project →
-                </a>
-              </div>
-              <input
-                type="url"
-                required
-                disabled={isConfiguredByEnv}
-                placeholder="https://your-project-id.supabase.co"
-                value={supabaseUrl}
-                onChange={(e) => setSupabaseUrl(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-250 font-mono text-xs text-slate-750 bg-slate-50/50 focus:outline-hidden focus:border-indigo-600 focus:bg-white transition disabled:opacity-60"
-              />
-            </div>
+          <div className="space-y-1">
+            <label className="text-[9px] font-bold text-slate-500 block uppercase tracking-wider">
+              Supabase Project URL
+            </label>
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="e.g. https://yourproj.supabase.co"
+              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-500 font-mono"
+            />
+          </div>
 
-            <div className="space-y-1.5">
-              <label className="font-semibold text-slate-500 uppercase tracking-widest text-[10px]">
-                Supabase Anon / Public API Key
-              </label>
-              <input
-                type="text"
-                required
-                disabled={isConfiguredByEnv}
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.your-key-goes-here..."
-                value={supabaseAnonKey}
-                onChange={(e) => setSupabaseAnonKey(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-250 font-mono text-xs text-slate-750 bg-slate-50/50 focus:outline-hidden focus:border-indigo-600 focus:bg-white transition disabled:opacity-60"
-              />
-            </div>
+          <div className="space-y-1">
+            <label className="text-[9px] font-bold text-slate-500 block uppercase tracking-wider">
+              Anon JWT Token Key (Anon Key)
+            </label>
+            <input
+              type="password"
+              value={anonKey}
+              onChange={(e) => setAnonKey(e.target.value)}
+              placeholder="eyJhbGciOi..."
+              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none focus:border-indigo-500 font-mono"
+            />
+          </div>
 
-            {!isConfiguredByEnv && (
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="submit"
-                  disabled={testingConnection}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2.5 rounded-xl transition cursor-pointer select-none border-0 flex items-center gap-1.5"
-                >
-                  {testingConnection ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CloudLightning className="w-3.5 h-3.5" />}
-                  {lang === "si" ? "සුරකින්න සහ සම්බන්ධ කරන්න" : "Save & Connect DB"}
-                </button>
-                {(supabaseUrl || supabaseAnonKey) && (
-                  <button
-                    type="button"
-                    onClick={handleClearCredentials}
-                    className="border border-slate-200 hover:bg-slate-50 text-slate-505 font-semibold px-4 py-2.5 rounded-xl transition cursor-pointer"
-                  >
-                    {lang === "si" ? "මකන්න" : "Reset config"}
-                  </button>
-                )}
-              </div>
-            )}
-            
-            {isConfiguredByEnv && (
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={handleTestConnection}
+              disabled={isTesting || isSyncing}
+              className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-extrabold py-2 rounded-xl text-xs cursor-pointer transition select-none active:scale-95 flex items-center justify-center gap-1 font-sans"
+            >
+              {isTesting ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Configuring...</span>
+                </>
+              ) : (
+                <span>Mirror Connection</span>
+              )}
+            </button>
+
+            {(url || anonKey) && (
               <button
-                type="button"
-                onClick={() => testConnection(supabaseUrl, supabaseAnonKey)}
-                disabled={testingConnection}
-                className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-4 py-2.5 rounded-xl transition cursor-pointer select-none border-0 flex items-center gap-1.5"
+                onClick={handleClearConfig}
+                className="p-2 bg-slate-200 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-300 hover:border-rose-200 rounded-xl transition cursor-pointer active:scale-95"
+                title="Remove credentials"
               >
-                {testingConnection ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                {lang === "si" ? "සම්බන්ධතාවය පරික්ෂා කරන්න" : "Test Connection"}
+                <Trash2 className="w-4 h-4 shrink-0" />
               </button>
             )}
-          </form>
-
-          {/* Core cloud data migration action triggers */}
-          <div className="pt-6 border-t border-slate-100 space-y-4 font-sans">
-            <h4 className="font-extrabold text-slate-805 text-[11px] uppercase tracking-wider">
-              {lang === "si" ? "සජීවී දත්ත යාවත්කාලීන ක්‍රියා (Cloud Sync Actions)" : "Live Cloud Synchronization Actions"}
-            </h4>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {/* Push Local -> Cloud */}
-              <button
-                onClick={handlePush}
-                disabled={!isConnected || syncing !== null}
-                className={`flex flex-col items-start p-4 border rounded-2xl text-left transition select-none ${
-                  isConnected 
-                    ? "bg-[#FAFBFB] hover:bg-indigo-50/25 border-slate-200 hover:border-indigo-200 cursor-pointer text-slate-750" 
-                    : "opacity-45 bg-[#FAFBFB] border-slate-150 cursor-not-allowed text-slate-400"
-                }`}
-              >
-                <div className="flex items-center gap-2 font-black text-xs font-sans">
-                  <ArrowUpRight className="w-4 h-4 text-indigo-600 shrink-0" />
-                  <span>{lang === "si" ? "සුපර් සින්ක් වලාකුළට (Push Data)" : "Push Local to Supabase"}</span>
-                </div>
-                <p className="text-[10px] text-slate-400 font-medium mt-1">
-                  {lang === "si" 
-                    ? `පරිගණකයේ ඇති ණය ගිණුම් ${loans.length} සජීවීව වලාකුළට උඩුගත කරන්න.` 
-                    : `Upload your local browser ledgers (${loans.length} files) to store safely online.`}
-                </p>
-                {syncing === "push" && (
-                  <span className="mt-2 text-[10px] text-indigo-600 font-bold animate-pulse flex items-center gap-1">
-                    <RefreshCw className="w-3 h-3 animate-spin" /> Synchronizing...
-                  </span>
-                )}
-              </button>
-
-              {/* Pull Cloud -> Local */}
-              <button
-                onClick={handlePull}
-                disabled={!isConnected || syncing !== null}
-                className={`flex flex-col items-start p-4 border rounded-2xl text-left transition select-none ${
-                  isConnected 
-                    ? "bg-[#FAFBFB] hover:bg-emerald-50/25 border-slate-200 hover:border-emerald-200 cursor-pointer text-slate-750" 
-                    : "opacity-45 bg-[#FAFBFB] border-slate-150 cursor-not-allowed text-slate-400"
-                }`}
-              >
-                <div className="flex items-center gap-2 font-black text-xs font-sans">
-                  <ArrowDownLeft className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>{lang === "si" ? "සර්වර් එකෙන් ලබාගන්න (Pull Data)" : "Pull live from Supabase"}</span>
-                </div>
-                <p className="text-[10px] text-slate-400 font-medium mt-1">
-                  {lang === "si" 
-                    ? "සර්වර් එකෙහි ඇති සියලුම ණය ගනුදෙනු ලේඛන බාගත කර පිහිටුවන්න." 
-                    : "Retrieve cloud tables and fully replace your browser database content."}
-                </p>
-                {syncing === "pull" && (
-                  <span className="mt-2 text-[10px] text-emerald-600 font-bold animate-pulse flex items-center gap-1">
-                    <RefreshCw className="w-3 h-3 animate-spin" /> Fetching live rows...
-                  </span>
-                )}
-              </button>
-            </div>
           </div>
         </div>
 
-        {/* Real-time sync log console & details */}
-        <div className="lg:col-span-5 space-y-6">
-          <div className="bg-slate-950 border border-slate-850 rounded-3xl p-5 md:p-6 text-white shadow-xl space-y-4 font-mono">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase flex items-center gap-1.5">
-                <Terminal className="w-4 h-4 text-emerald-400" />
-                Live Sync Terminal Logs
-              </span>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-            </div>
-
-            <div className="space-y-2 h-[150px] overflow-y-auto text-[10px] scrollbar-thin text-slate-300">
-              {logMessages.length === 0 ? (
-                <div className="text-slate-500 text-center py-8">
-                  &lt; System terminal active and awaiting queries &gt;
-                </div>
-              ) : (
-                logMessages.map((log, index) => (
-                  <div key={index} className="flex items-start gap-1.5 leading-relaxed">
-                    <span className="text-slate-500 text-[9px] font-bold">[{log.time}]</span>
-                    <span className={
-                      log.type === "success" ? "text-emerald-400 font-bold" : 
-                      log.type === "error" ? "text-rose-400 font-bold" : "text-sky-305 text-slate-300"
-                    }>
-                      {log.type === "success" ? "✔" : log.type === "error" ? "✖" : "•"} {log.text}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-xs font-sans text-xs space-y-4">
-            <h4 className="font-extrabold text-slate-750 flex items-center gap-1 text-[11px] uppercase tracking-wider">
-              <AlertTriangle className="w-4.5 h-4.5 text-indigo-600" />
-              {lang === "si" ? "SQL Table සැකසුම් මාර්ගෝපදේශය" : "Supabase Relation Guide"}
-            </h4>
-            <p className="text-slate-500 text-[11px] leading-relaxed">
-              {lang === "si" 
-                ? "Supabase ඩේටාබේස් එක සමඟින් සාර්ථකව උඩුගත (Push) සහ බාගත (Pull) කිරීම් ක්‍රියාත්මක වීමට නම්, Supabase හි Table එකක් සාදා තිබිය යුතුය. පහත දක්වා ඇති SQL කේතය පිටපත් කර ඔබගේ Supabase SQL Editor එක තුළ Run කරන්න."
-                : "For synchronization to compile properly, you must deploy the 'loans' relational table first inside the Supabase control panel. Open the Supabase SQL Editor and run the instructions below."
-              }
-            </p>
-
+        {/* Sync Controls Section */}
+        <div className="lg:col-span-5 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Sync Up Stream */}
             <button
-              onClick={() => setShowSql(!showSql)}
-              className="w-full justify-between flex items-center bg-slate-50 hover:bg-slate-100 px-4 py-2.5 rounded-xl transition font-bold select-none cursor-pointer"
+              onClick={handleSyncUp}
+              disabled={!isConnected || isSyncing || isTesting}
+              className="bg-slate-950 hover:bg-indigo-900 disabled:bg-slate-100 border disabled:border-slate-200 text-white disabled:text-slate-400 p-5 rounded-2xl cursor-pointer transition flex flex-col items-center justify-center gap-2 min-h-[145px]"
             >
-              <span>{lang === "si" ? "SQL Schema එක පෙන්වන්න" : "View SQL Script"}</span>
-              {showSql ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              <CloudLightning className={`w-8 h-8 ${isSyncing ? "animate-bounce text-indigo-400" : "text-white"}`} />
+              <div className="text-center">
+                <span className="font-extrabold text-[11px] uppercase tracking-wider block">Sync Up Stream</span>
+                <span className="text-[9px] opacity-70 font-medium">Backup entire browser to Cloud</span>
+              </div>
             </button>
 
-            {showSql && (
-              <div className="space-y-2 animate-fade-in text-[10px]">
-                <div className="flex items-center justify-between">
-                  <span className="font-black text-slate-400 uppercase tracking-widest text-[9px]">SOLO TABLE BUILD SCRIPT</span>
-                  <button
-                    onClick={copySqlToClipboard}
-                    className="flex items-center gap-1.5 text-[10px] text-indigo-650 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg active:scale-95 transition font-bold cursor-pointer"
-                  >
-                    {copiedSql ? <Check className="w-3.5 h-3.5 text-emerald-505" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copiedSql ? (lang === "si" ? "පිටපත් විය!" : "Success!") : (lang === "si" ? "කොපි කරන්න (Copy)" : "Copy Script")}
-                  </button>
-                </div>
-                <pre className="p-4 bg-slate-900 text-slate-100 font-mono text-[9px] rounded-xl overflow-x-auto leading-relaxed max-h-[170px] select-text">
+            {/* Sync Down Stream */}
+            <button
+              onClick={handleSyncDown}
+              disabled={!isConnected || isSyncing || isTesting}
+              className="bg-indigo-50 hover:bg-indigo-100 disabled:bg-slate-100 border border-indigo-100 disabled:border-slate-200 text-indigo-700 disabled:text-slate-400 p-5 rounded-2xl cursor-pointer transition flex flex-col items-center justify-center gap-2 min-h-[145px]"
+            >
+              <RefreshCw className={`w-8 h-8 ${isSyncing ? "animate-spin text-indigo-600" : "text-indigo-600"}`} />
+              <div className="text-center">
+                <span className="font-extrabold text-[11px] uppercase tracking-wider block">Sync Down Stream</span>
+                <span className="text-[9px] opacity-70 font-medium">Download Cloud entries to local</span>
+              </div>
+            </button>
+          </div>
+
+          {statusMessage && (
+            <div className={`p-4 border rounded-2xl flex items-start gap-2 text-xs font-bold font-sans animate-fade-in ${
+              isSuccess 
+                ? "bg-emerald-50/70 border-emerald-100 text-emerald-800" 
+                : "bg-rose-50/70 border-rose-100 text-rose-800"
+            }`}>
+              {isSuccess ? (
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500 mt-0.5" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
+              )}
+              <span>{statusMessage}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Real-time sync logs terminal */}
+        <div className="lg:col-span-3 space-y-2">
+          <div className="flex items-center gap-1.5 text-slate-700">
+            <Terminal className="w-4 h-4 text-slate-400 shrink-0" />
+            <h5 className="font-extrabold text-[10px] uppercase text-slate-700 tracking-wider">Sync Transaction Logs</h5>
+          </div>
+
+          <div className="bg-slate-950 border border-slate-900 rounded-2xl p-4 font-mono text-[9px] text-cyan-400 space-y-1.5 min-h-[160px] max-h-[160px] overflow-y-auto leading-normal">
+            <div className="flex items-center gap-1 text-slate-500 pb-1 border-b border-slate-900">
+              <Activity className="w-3.5 h-3.5 text-slate-500 shrink-0 animate-pulse" />
+              <span>TERMINAL STREAM</span>
+            </div>
+            {syncHistory.length === 0 ? (
+              <p className="text-slate-600">No events logged yet. Awaiting port open...</p>
+            ) : (
+              syncHistory.map((item, idx) => (
+                <p key={idx} className="truncate select-text">
+                  {item}
+                </p>
+              ))
+            )}
+          </div>
+        </div>
+
+      </div>
+
+      {/* Table Activation Guide / SQL Copy section */}
+      <div className="mt-8 pt-6 border-t border-slate-100">
+        <button 
+          onClick={() => setShowSQL(!showSQL)}
+          className="w-full flex items-center justify-between text-left p-4 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-2xl cursor-pointer transition select-none"
+        >
+          <div className="flex items-center gap-2">
+            <Database className="w-5 h-5 text-indigo-600 shrink-0" />
+            <div>
+              <h5 className="font-extrabold text-xs uppercase text-slate-800 tracking-wider">
+                {lang === "si" ? "Supabase SQL ඩේටාබේස් එක ක්‍රියාත්මක කිරීමේ පියවර" : "Activate Supabase SQL Database Tables"}
+              </h5>
+              <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                {lang === "si" ? "ඔබගේ Supabase ප්‍රොජෙක්ට් එකෙහි ටේබල් සෑදීම සඳහා අවශ්‍ය වන SQL Script එක මෙතැනින් ලබා ගන්න." : "Get the pre-formatted SQL code needed to instantiate database tables and rules inside Supabase."}
+              </p>
+            </div>
+          </div>
+          {showSQL ? <ChevronUp className="w-4 h-4 text-slate-400 animate-fade-in" /> : <ChevronDown className="w-4 h-4 text-slate-400 animate-fade-in" />}
+        </button>
+
+        {showSQL && (
+          <div className="mt-4 p-5 bg-white border border-slate-150 rounded-2xl space-y-4 animate-fade-in">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-slate-600">
+              <div className="space-y-2">
+                <span className="font-extrabold text-slate-800 text-[11px] uppercase tracking-wider block">
+                  {lang === "si" ? "සිංහල උපදෙස් (Sinhala Guide):" : "Sinhala Instruction Guide:"}
+                </span>
+                <ul className="list-decimal list-inside space-y-1.5 font-semibold text-slate-500 text-[11px]">
+                  <li>පහත ඇති <b className="text-slate-800">\"SQL Script එක කොපි කරන්න\"</b> බොත්තම ඔබා කේතය ලබා ගන්න.</li>
+                  <li>ඔබගේ <b className="text-slate-800">Supabase Dashboard</b> එකට ලොග් වී අදාළ ප්‍රොජෙක්ටය තෝරන්න.</li>
+                  <li>වම්පස මෙනුවේ ඇති <b className="text-slate-800">SQL Editor</b> වෙත ගොස් <span className="text-indigo-600">Create a new query</span> යන්න ක්ලික් කරන්න.</li>
+                  <li>කොපි කරගත් SQL පේස්ට් (Paste) කර <b className="text-emerald-600">Run</b> බොත්තම ඔබන්න.</li>
+                  <li>ඉන්පසුව ඔබගේ දත්ත සාර්ථකව සින්ක් කිරීමට හැකිවේ!</li>
+                </ul>
+              </div>
+
+              <div className="space-y-2">
+                <span className="font-extrabold text-slate-800 text-[11px] uppercase tracking-wider block">
+                  English Instruction Guide:
+                </span>
+                <ul className="list-decimal list-inside space-y-1.5 font-semibold text-slate-500 text-[11px]">
+                  <li>Click <b className="text-slate-800">\"Copy SQL Script\"</b> below to copy the tables schemas to clipboard.</li>
+                  <li>Open your <b className="text-slate-800">Supabase Console</b> and navigate to your active database project.</li>
+                  <li>Click <b className="text-slate-850">SQL Editor</b> on the left sidebar and select \"New Query\".</li>
+                  <li>Paste the copied script directly and click <b className="text-emerald-600">Run</b> to build tables and storage bounds.</li>
+                  <li>Your application is now fully configured for remote database sync!</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2 border-t border-slate-100">
+              <div className="flex justify-between items-center bg-slate-900 px-4 py-2.5 rounded-t-xl">
+                <span className="text-[10px] text-slate-400 font-bold font-mono">SETH_CAPITAL_SETUP.sql</span>
+                <button
+                  onClick={handleCopySQL}
+                  className="flex items-center gap-1.5 bg-slate-800 text-white border border-slate-700 hover:bg-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold transition select-none cursor-pointer"
+                >
+                  {copiedSQL ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-400">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-slate-300" />
+                      <span>{lang === "si" ? "SQL Script එක කොපි කරන්න" : "Copy SQL Script"}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <div className="bg-slate-950 p-4 border border-slate-900 rounded-b-xl max-h-[185px] overflow-y-auto">
+                <pre className="font-mono text-[9px] text-slate-300 leading-relaxed overflow-x-auto whitespace-pre">
                   {SUPABASE_SETUP_SQL}
                 </pre>
               </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
+
     </div>
   );
 }
